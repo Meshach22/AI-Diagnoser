@@ -1,0 +1,156 @@
+{
+  "name": "AI-Diagnoser: Webhook to Multi-Channel Dispatch (Slack & Email)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-diagnoser",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node-webhook-inbound",
+      "name": "Webhook: Inbound Diagnostic Event",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://backend:8000/api/v1/n8n/webhook",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"event\": \"{{ $json.event || 'document.diagnose' }}\",\n  \"content\": \"{{ $json.content || '' }}\",\n  \"image_base64\": \"{{ $json.image_base64 || '' }}\",\n  \"provider\": \"{{ $json.provider || 'Google Gemini' }}\"\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "node-fastapi-backend",
+      "name": "HTTP: AI-Diagnoser FastAPI Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format diagnostic findings for Slack & Email\nconst diagnosis = $input.item.json.diagnosis || 'No diagnosis available';\nconst event = $input.item.json.event || 'diagnostic_audit';\nconst telemetry = $input.item.json.telemetry || {};\n\nreturn {\n  event,\n  diagnosis,\n  summary: $input.item.json.summary,\n  active_provider: telemetry.active_provider || 'Google Gemini',\n  latency_ms: telemetry.latency_ms || 0,\n  slack_message: `*AI-Diagnoser Report [${event}]*\\n\\n${diagnosis.substring(0, 500)}...`,\n  email_subject: `AI-Diagnoser: Diagnostic Report for ${event}`,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "id": "node-format-report",
+      "name": "Code: Format Diagnostic Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL || 'https://hooks.slack.com/services/mock' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"channel\": \"#diagnostics-feed\",\n  \"text\": \"{{ $json.slack_message }}\",\n  \"blocks\": [\n    {\n      \"type\": \"header\",\n      \"text\": {\n        \"type\": \"plain_text\",\n        \"text\": \"AI-Diagnoser Alert: {{ $json.event }}\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"{{ $json.diagnosis.substring(0, 400) }}\"\n      }\n    }\n  ]\n}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "node-dispatch-slack",
+      "name": "Slack: Send Block Kit Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [940, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.EMAIL_SERVICE_WEBHOOK_URL || 'https://api.email-service.local/v1/send' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"diagnostics-team@enterprise.local\",\n  \"subject\": \"{{ $json.email_subject }}\",\n  \"body\": \"{{ $json.diagnosis }}\"\n}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "node-dispatch-email",
+      "name": "Email: Dispatch Diagnostic Dossier",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [940, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"completed\",\n  \"event\": \"{{ $('node-format-report').item.json.event }}\",\n  \"diagnosis\": \"{{ $('node-format-report').item.json.diagnosis }}\",\n  \"active_provider\": \"{{ $('node-format-report').item.json.active_provider }}\",\n  \"dispatched_channels\": [\"slack\", \"email\"]\n}",
+        "options": {}
+      },
+      "id": "node-respond-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1180, 300]
+    }
+  ],
+  "connections": {
+    "Webhook: Inbound Diagnostic Event": {
+      "main": [
+        [
+          {
+            "node": "HTTP: AI-Diagnoser FastAPI Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: AI-Diagnoser FastAPI Backend": {
+      "main": [
+        [
+          {
+            "node": "Code: Format Diagnostic Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Format Diagnostic Report": {
+      "main": [
+        [
+          {
+            "node": "Slack: Send Block Kit Alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email: Dispatch Diagnostic Dossier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Send Block Kit Alert": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email: Dispatch Diagnostic Dossier": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

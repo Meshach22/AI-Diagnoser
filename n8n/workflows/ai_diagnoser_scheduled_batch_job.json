@@ -1,0 +1,109 @@
+{
+  "name": "AI-Diagnoser: Scheduled Batch Diagnostic Audit & Slack Digest",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "node-schedule-cron",
+      "name": "Schedule: Daily 9AM Audit",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://backend:8000/api/v1/n8n/schedules/trigger",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"job_id\": \"job_daily_data_audit\",\n  \"provider\": \"Google Gemini\"\n}",
+        "options": {
+          "timeout": 45000
+        }
+      },
+      "id": "node-trigger-job",
+      "name": "FastAPI: Trigger Scheduled Audit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://backend:8000/api/v1/n8n/reports/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"title\": \"Daily Diagnostic Audit: {{ $json.job_name }}\",\n  \"content\": \"{{ $json.diagnosis_preview }}\",\n  \"report_type\": \"markdown\",\n  \"slack_channel\": \"#audits-daily\"\n}",
+        "options": {}
+      },
+      "id": "node-generate-report",
+      "name": "FastAPI: Generate Diagnostic Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL || 'https://hooks.slack.com/services/mock' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"channel\": \"#audits-daily\",\n  \"text\": \"Scheduled Audit Complete: {{ $('node-trigger-job').item.json.job_name }}\",\n  \"blocks\": [\n    {\n      \"type\": \"header\",\n      \"text\": {\n        \"type\": \"plain_text\",\n        \"text\": \"Scheduled Audit Complete: {{ $('node-trigger-job').item.json.job_name }}\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"Automated batch health check ran successfully at {{ $('node-trigger-job').item.json.executed_at }}.\\nReport ID: `{{ $json.report_id }}`\"\n      }\n    }\n  ]\n}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "node-slack-alert",
+      "name": "Slack: Post Batch Audit Digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 300]
+    }
+  ],
+  "connections": {
+    "Schedule: Daily 9AM Audit": {
+      "main": [
+        [
+          {
+            "node": "FastAPI: Trigger Scheduled Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FastAPI: Trigger Scheduled Audit": {
+      "main": [
+        [
+          {
+            "node": "FastAPI: Generate Diagnostic Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FastAPI: Generate Diagnostic Report": {
+      "main": [
+        [
+          {
+            "node": "Slack: Post Batch Audit Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,120 @@
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: ai_diagnoser_gateway
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    networks:
+      - studio-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai_diagnoser_backend
+    restart: unless-stopped
+    command:
+      - uvicorn
+      - backend.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    expose:
+      - "8000"
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - N8N_BASE_URL=${N8N_BASE_URL:-http://n8n:5678}
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://n8n:5678/webhook/ai-diagnoser}
+      - N8N_WEBHOOK_SECRET=${N8N_WEBHOOK_SECRET:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - auth_data:/app/data
+    networks:
+      - studio-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai_diagnoser_frontend
+    restart: unless-stopped
+    command:
+      - streamlit
+      - run
+      - main.py
+      - --server.address=0.0.0.0
+      - --server.port=8501
+    expose:
+      - "8501"
+    ports:
+      - "8501:8501"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - BACKEND_URL=http://backend:8000
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - studio-network
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: ai_diagnoser_n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - WEBHOOK_URL=${N8N_PUBLIC_WEBHOOK_URL:-http://localhost:5678/}
+      - EXECUTIONS_DATA_PRUNE=true
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/workflows:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - studio-network
+
+networks:
+  studio-network:
+    driver: bridge
+
+volumes:
+  n8n_data:
+  auth_data:

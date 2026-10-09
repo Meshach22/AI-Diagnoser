@@ -1,0 +1,32 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+
+# Environment & Credentials
+.streamlit/secrets.toml
+.env
+.env.*
+!.env.example
+!.streamlit/secrets.example.toml
+*.pem
+*.key
+
+# Runtime Artifacts, Logs & Scratch
+logs/
+scratch/
+data/*.db
+data/
+*.log
+*.jsonl
+
+# Testing & Packaging
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/

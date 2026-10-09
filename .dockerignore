@@ -1,0 +1,34 @@
+# Exclude environment files containing sensitive credentials
+.env
+.env.*
+!.env.example
+
+# Exclude Git metadata
+.git
+.gitignore
+
+# Exclude secrets
+.streamlit/secrets.toml
+
+# Exclude Python bytecode and cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+# Exclude runtime logs and scratch files
+logs/
+scratch/
+*.log
+
+# Exclude test and coverage caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Exclude local databases and sensitive runtime persistence
+data/
+*.db
+*.db.backup
+*.sqlite
+*.sqlite3
