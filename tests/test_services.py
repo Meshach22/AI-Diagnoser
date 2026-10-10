@@ -32,6 +32,16 @@ def test_document_service_ingest():
     assert "Revenue increased by 15%" in result["full_text"]
     assert result["word_count"] > 0
     assert result["page_count"] == 1
+    assert result["character_count"] == len(sample_text)
+    assert result["preview"] == result["full_text"]
+    assert result["has_extractable_text"] is True
+
+
+def test_document_service_scanned_or_blank_detection():
+    """Verify DocumentService flags documents with no extractable text."""
+    blank_bytes = b"   \n\n   "
+    result = DocumentService.ingest_document(blank_bytes, "blank_scanned.txt")
+    assert result["has_extractable_text"] is False
 
 
 def test_document_service_empty_input_raises_error():

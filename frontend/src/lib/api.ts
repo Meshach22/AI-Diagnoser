@@ -40,6 +40,26 @@ export interface DocumentParseResult {
   character_count: number;
   word_count: number;
   preview: string;
+  full_text?: string;
+  char_count?: number;
+  reading_time_min?: number;
+  pages_or_chunks?: string[];
+  structured_metadata?: Record<string, any>;
+  has_extractable_text?: boolean;
+}
+
+export interface DocumentIngestApiResponse {
+  filename: string;
+  file_type: string;
+  word_count?: number;
+  char_count?: number;
+  character_count?: number;
+  page_count?: number;
+  reading_time_min?: number;
+  full_text?: string;
+  preview?: string;
+  pages_or_chunks?: string[];
+  has_extractable_text?: boolean;
   structured_metadata?: Record<string, any>;
 }
 
@@ -129,7 +149,11 @@ class ApiClient {
     return this.token;
   }
 
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  private async request<T>(
+    endpoint: string,
+    options: RequestInit = {},
+    timeoutMs: number = 45000
+  ): Promise<T> {
     const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
     const headers: Record<string, string> = {
       ...(options.headers as Record<string, string> || {}),
@@ -144,42 +168,94 @@ class ApiClient {
       headers['Content-Type'] = 'application/json';
     }
 
-    const res = await fetch(url, {
-      ...options,
-      headers,
-    });
+    const controller = new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-    if (!res.ok) {
-      let errorMsg = `HTTP Error ${res.status}`;
-      try {
-        const errJson = await res.json();
-        if (errJson.detail) {
-          errorMsg = typeof errJson.detail === 'string' ? errJson.detail : JSON.stringify(errJson.detail);
-        }
-      } catch {
-        // Fallback to text
-        const text = await res.text().catch(() => '');
-        if (text) errorMsg = text;
-      }
-      throw new Error(errorMsg);
+    if (timeoutMs > 0) {
+      timeoutId = setTimeout(() => {
+        controller.abort();
+      }, timeoutMs);
     }
 
-    return res.json();
+    if (options.signal) {
+      options.signal.addEventListener('abort', () => controller.abort());
+    }
+
+    try {
+      const res = await fetch(url, {
+        ...options,
+        headers,
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        let errorMsg = `HTTP Error ${res.status}`;
+        try {
+          const errJson = await res.json();
+          if (errJson.detail) {
+            errorMsg = typeof errJson.detail === 'string' ? errJson.detail : JSON.stringify(errJson.detail);
+          }
+        } catch {
+          // Fallback to text
+          const text = await res.text().catch(() => '');
+          if (text) errorMsg = text;
+        }
+        throw new Error(errorMsg);
+      }
+
+      return await res.json();
+    } catch (err: any) {
+      if (err.name === 'AbortError' || controller.signal.aborted) {
+        throw new Error(
+          `Request timed out after ${Math.round(timeoutMs / 1000)}s. The server may be waking from sleep or experiencing high load. Please try again.`
+        );
+      }
+      throw err;
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
   }
 
   // --- Health & System ---
-  public async checkHealth(): Promise<{ ok: boolean; status?: HealthStatus; latencyMs: number }> {
+  public async checkHealth(): Promise<{
+    ok: boolean;
+    status?: HealthStatus;
+    latencyMs: number;
+    isWaking?: boolean;
+    error?: string;
+  }> {
     const start = performance.now();
+    // In production without NEXT_PUBLIC_API_URL, route to relative /health which Next.js rewrites to the backend
+    const healthUrl = API_BASE ? `${API_BASE}/health` : '/health';
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s health check budget
+
     try {
-      const res = await fetch(`${API_BASE}/health`, { method: 'GET', cache: 'no-store' });
+      const res = await fetch(healthUrl, {
+        method: 'GET',
+        cache: 'no-store',
+        signal: controller.signal,
+      });
       const latencyMs = Math.round(performance.now() - start);
       if (res.ok) {
         const data = await res.json();
-        return { ok: true, status: { ...data, latencyMs }, latencyMs };
+        return { ok: true, status: { ...data, latencyMs }, latencyMs, isWaking: false };
       }
-      return { ok: false, latencyMs };
-    } catch {
-      return { ok: false, latencyMs: Math.round(performance.now() - start) };
+      const isWaking = [502, 503, 504].includes(res.status);
+      return { ok: false, latencyMs, isWaking, error: `HTTP ${res.status}` };
+    } catch (err: any) {
+      const latencyMs = Math.round(performance.now() - start);
+      const isTimeout = err.name === 'AbortError' || controller.signal.aborted;
+      return {
+        ok: false,
+        latencyMs,
+        isWaking: isTimeout,
+        error: isTimeout ? 'Service waking up (Render free tier)' : (err.message || 'Offline'),
+      };
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -241,13 +317,52 @@ class ApiClient {
   }
 
   // --- Document Intelligence ---
+  public normalizeDocumentParseResult(raw: DocumentIngestApiResponse): DocumentParseResult {
+    const fullText = raw.full_text ?? raw.preview ?? '';
+    const charCount = typeof raw.character_count === 'number'
+      ? raw.character_count
+      : typeof raw.char_count === 'number'
+        ? raw.char_count
+        : fullText.length;
+    const wordCount = typeof raw.word_count === 'number'
+      ? raw.word_count
+      : (fullText.trim() ? fullText.trim().split(/\s+/).length : 0);
+    const pageCount = typeof raw.page_count === 'number' ? raw.page_count : 1;
+    const readingTime = typeof raw.reading_time_min === 'number'
+      ? raw.reading_time_min
+      : Math.round(Math.max(0.5, wordCount / 220) * 10) / 10;
+    const hasText = typeof raw.has_extractable_text === 'boolean'
+      ? raw.has_extractable_text
+      : fullText.trim().length > 0;
+
+    return {
+      filename: raw.filename || 'document',
+      file_type: (raw.file_type || 'TXT').toUpperCase(),
+      page_count: pageCount,
+      character_count: charCount,
+      char_count: charCount,
+      word_count: wordCount,
+      preview: fullText,
+      full_text: fullText,
+      reading_time_min: readingTime,
+      pages_or_chunks: raw.pages_or_chunks ?? (fullText ? [fullText] : []),
+      structured_metadata: raw.structured_metadata,
+      has_extractable_text: hasText,
+    };
+  }
+
   public async parseDocument(file: File): Promise<DocumentParseResult> {
     const formData = new FormData();
     formData.append('file', file);
-    return this.request('/api/v1/documents/parse', {
-      method: 'POST',
-      body: formData,
-    });
+    const raw = await this.request<DocumentIngestApiResponse>(
+      '/api/v1/documents/parse',
+      {
+        method: 'POST',
+        body: formData,
+      },
+      60000 // 60s budget for document upload, extraction, and rendering
+    );
+    return this.normalizeDocumentParseResult(raw);
   }
 
   public async summarizeDocument(

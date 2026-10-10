@@ -13,14 +13,16 @@ export const Header: React.FC = () => {
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [latency, setLatency] = useState<number | null>(null);
   const [isOnline, setIsOnline] = useState<boolean>(true);
+  const [isWaking, setIsWaking] = useState<boolean>(false);
 
-  // Probe backend health periodically
+  // Probe backend health periodically (20s interval to avoid excessive traffic)
   useEffect(() => {
     let mounted = true;
     const probe = async () => {
       const res = await api.checkHealth();
       if (!mounted) return;
       setIsOnline(res.ok);
+      setIsWaking(!!res.isWaking);
       if (res.ok && res.status) {
         setHealth(res.status);
         setLatency(res.latencyMs);
@@ -30,7 +32,7 @@ export const Header: React.FC = () => {
     };
 
     probe();
-    const interval = setInterval(probe, 15000);
+    const interval = setInterval(probe, 20000);
     return () => {
       mounted = false;
       clearInterval(interval);
@@ -63,11 +65,24 @@ export const Header: React.FC = () => {
             fontSize: '0.78rem',
             fontWeight: 600,
           }}
-          title={isOnline ? `FastAPI core latency: ${latency}ms` : 'Backend offline or unreachable'}
+          title={
+            isOnline
+              ? `FastAPI core latency: ${latency}ms`
+              : isWaking
+                ? 'Backend service is waking up (Render cold start)...'
+                : 'Backend offline or unreachable'
+          }
         >
-          <span className={`status-dot ${isOnline ? '' : 'offline'}`} />
+          <span
+            className={`status-dot ${isOnline ? '' : isWaking ? 'waking' : 'offline'}`}
+            style={isWaking ? { background: '#f59e0b', boxShadow: '0 0 6px rgba(245, 158, 11, 0.6)' } : undefined}
+          />
           <span style={{ color: 'var(--text-secondary)' }}>
-            {isOnline ? `Online ${latency ? `(${latency}ms)` : ''}` : 'Offline'}
+            {isOnline
+              ? `Online ${latency ? `(${latency}ms)` : ''}`
+              : isWaking
+                ? 'Connecting...'
+                : 'Offline'}
           </span>
         </div>
 

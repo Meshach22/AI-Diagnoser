@@ -38,6 +38,9 @@ class DocumentIngestResponse(BaseModel):
     reading_time_min: float
     full_text: str
     pages_or_chunks: List[str]
+    character_count: Optional[int] = None
+    preview: Optional[str] = None
+    has_extractable_text: bool = True
 
 
 class DocumentAnalysisResponse(BaseModel):

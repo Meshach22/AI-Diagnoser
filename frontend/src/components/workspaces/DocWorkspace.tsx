@@ -1,7 +1,7 @@
 // frontend/src/components/workspaces/DocWorkspace.tsx
 'use client';
 
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api, DocumentParseResult } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -11,8 +11,9 @@ import {
   Sparkles,
   HelpCircle,
   CheckCircle,
-  Layers,
-  FileCheck2,
+  AlertTriangle,
+  Lock,
+  RefreshCw,
 } from 'lucide-react';
 
 interface DocWorkspaceProps {
@@ -30,12 +31,11 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleFileUpload = async (selectedFile: File) => {
-    if (!user) {
-      openAuthModal();
-      return;
-    }
-    setFile(selectedFile);
+  // Track the exact File instance that was last ingested to prevent effect loops and duplicate processing
+  const processedFileRef = useRef<File | null>(null);
+
+  // Ingestion executor
+  const executeIngestion = useCallback(async (targetFile: File) => {
     setLoading(true);
     setError(null);
     setParsed(null);
@@ -43,21 +43,57 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
     setQaAnswer(null);
 
     try {
-      const res = await api.parseDocument(selectedFile);
+      const res = await api.parseDocument(targetFile);
       setParsed(res);
     } catch (err: any) {
-      setError(err.message || 'Failed to parse document.');
+      setError(err.message || 'Failed to process document.');
+      // Allow retry if this specific run failed
+      processedFileRef.current = null;
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  // Synchronize incoming initialFile from props (e.g., when selected from HomeWorkspace)
+  useEffect(() => {
+    if (initialFile && initialFile !== file) {
+      setFile(initialFile);
+    }
+  }, [initialFile, file]);
+
+  // Trigger ingestion exactly once per new file when authenticated
+  useEffect(() => {
+    const activeFile = initialFile || file;
+    if (!activeFile) return;
+
+    // Already processed this file instance or currently loading
+    if (processedFileRef.current === activeFile) return;
+
+    // Authentication guard: if unauthenticated, retain file in state and wait for login
+    if (!user) return;
+
+    processedFileRef.current = activeFile;
+    executeIngestion(activeFile);
+  }, [initialFile, file, user, executeIngestion]);
+
+  // Handler for manual file upload / replacement inside the workspace
+  const handleManualUpload = (selectedFile: File) => {
+    setFile(selectedFile);
+    if (!user) {
+      openAuthModal();
+      return;
+    }
+    processedFileRef.current = selectedFile;
+    executeIngestion(selectedFile);
   };
 
   const handleSummarize = async (type: string) => {
-    if (!parsed || !user) return;
+    const docText = parsed?.preview || parsed?.full_text;
+    if (!docText || !user) return;
     setLoading(true);
     setSummaryType(type);
     try {
-      const res = await api.summarizeDocument(parsed.preview, type);
+      const res = await api.summarizeDocument(docText, type);
       setSummary(res);
     } catch (err: any) {
       setError(err.message || 'Failed to generate summary.');
@@ -68,10 +104,11 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
 
   const handleAsk = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!parsed || !docQuestion.trim() || !user) return;
+    const docText = parsed?.preview || parsed?.full_text;
+    if (!docText || !docQuestion.trim() || !user) return;
     setLoading(true);
     try {
-      const res = await api.askDocument(parsed.preview, docQuestion.trim());
+      const res = await api.askDocument(docText, docQuestion.trim());
       setQaAnswer(res);
     } catch (err: any) {
       setError(err.message || 'Failed to answer question.');
@@ -79,6 +116,8 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
       setLoading(false);
     }
   };
+
+  const docTextAvailable = Boolean((parsed?.preview || parsed?.full_text)?.trim());
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -94,7 +133,9 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                 {file ? file.name : 'Document Intelligence & Synthesis'}
               </h3>
               <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                {file ? `${(file.size / 1024).toFixed(1)} KB • OCR and structural text extraction` : 'Upload PDF, Word (DOCX), or Plaintext corporate reports'}
+                {file
+                  ? `${(file.size / 1024).toFixed(1)} KB • Structural text & page extraction`
+                  : 'Upload PDF, Word (DOCX), or Plaintext corporate reports'}
               </p>
             </div>
           </div>
@@ -106,21 +147,69 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
               type="file"
               style={{ display: 'none' }}
               accept=".pdf,.docx,.txt"
-              onChange={(e) => e.target.files?.[0] && handleFileUpload(e.target.files[0])}
+              onChange={(e) => e.target.files?.[0] && handleManualUpload(e.target.files[0])}
             />
           </label>
         </div>
       </div>
 
-      {error && (
-        <div style={{ padding: '12px 16px', background: 'rgba(239, 68, 68, 0.12)', color: 'var(--accent-red)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(239, 68, 68, 0.25)', fontSize: '0.85rem' }}>
-          {error}
+      {/* Unauthenticated Notification */}
+      {!user && file && (
+        <div className="card" style={{ padding: 24, textAlign: 'center', background: 'var(--bg-subtle)' }}>
+          <div style={{ maxWidth: 440, margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+            <Lock size={26} style={{ color: 'var(--accent-red)' }} />
+            <h4 style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+              Authentication Required
+            </h4>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              Sign in or register to extract structured text, generate executive summaries, and query document contents.
+            </p>
+            <button className="btn btn-primary" onClick={openAuthModal}>
+              Sign In to Analyze Document
+            </button>
+          </div>
         </div>
       )}
 
+      {/* Error Banner with Retry */}
+      {error && (
+        <div style={{ padding: '14px 18px', background: 'rgba(239, 68, 68, 0.12)', color: 'var(--accent-red)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(239, 68, 68, 0.25)', fontSize: '0.85rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+            <span>{error}</span>
+            {file && user && (
+              <button
+                className="btn btn-outline btn-sm"
+                onClick={() => {
+                  processedFileRef.current = null;
+                  executeIngestion(file);
+                }}
+                disabled={loading}
+              >
+                <RefreshCw size={13} />
+                <span>Retry Analysis</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Loading State */}
       {loading && (
         <div className="card animate-pulse" style={{ padding: 32, textAlign: 'center', color: 'var(--text-secondary)' }}>
-          Processing multi-page document structure, tokens, and semantic embeddings...
+          Extracting document structure, pages, and textual content...
+        </div>
+      )}
+
+      {/* Scanned PDF Warning (when no extractable text is present) */}
+      {parsed && !loading && !docTextAvailable && (
+        <div className="card" style={{ padding: 18, background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: 'var(--radius-md)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#d97706', fontWeight: 600 }}>
+            <AlertTriangle size={18} />
+            <span>No Extractable Text Detected (Scanned PDF)</span>
+          </div>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.5 }}>
+            This document appears to contain rasterized/scanned images without embedded digital text. Optical Character Recognition (OCR) is not currently implemented; please upload a digitally generated PDF, Microsoft Word (.docx), or plain text file to enable AI summarization and Q&amp;A.
+          </p>
         </div>
       )}
 
@@ -149,7 +238,9 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
               <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 4 }}>
                 {parsed.word_count.toLocaleString()}
               </div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>{parsed.character_count.toLocaleString()} characters</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                {(parsed.character_count ?? parsed.char_count ?? 0).toLocaleString()} characters
+              </div>
             </div>
           </div>
 
@@ -162,6 +253,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
               <button
                 className={`btn ${summaryType === 'executive' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
                 onClick={() => handleSummarize('executive')}
+                disabled={!docTextAvailable || loading}
               >
                 <Sparkles size={14} />
                 <span>Executive Overview</span>
@@ -169,6 +261,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
               <button
                 className={`btn ${summaryType === 'key_takeaways' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
                 onClick={() => handleSummarize('key_takeaways')}
+                disabled={!docTextAvailable || loading}
               >
                 <BookOpen size={14} />
                 <span>Key Takeaways</span>
@@ -176,6 +269,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
               <button
                 className={`btn ${summaryType === 'action_items' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
                 onClick={() => handleSummarize('action_items')}
+                disabled={!docTextAvailable || loading}
               >
                 <CheckCircle size={14} />
                 <span>Action Items & Risks</span>
@@ -214,11 +308,16 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
               <input
                 type="text"
                 className="input"
-                placeholder="e.g. What were the total operational expenditures mentioned in Section 3?"
+                placeholder={
+                  docTextAvailable
+                    ? 'e.g. What were the total operational expenditures mentioned in Section 3?'
+                    : 'Text extraction required for Q&A...'
+                }
                 value={docQuestion}
                 onChange={(e) => setDocQuestion(e.target.value)}
+                disabled={!docTextAvailable || loading}
               />
-              <button type="submit" className="btn btn-primary" disabled={!docQuestion.trim() || loading}>
+              <button type="submit" className="btn btn-primary" disabled={!docQuestion.trim() || !docTextAvailable || loading}>
                 <span>Ask AI</span>
               </button>
             </form>

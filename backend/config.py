@@ -4,8 +4,10 @@ Configuration manager for the AI-Diagnoser FastAPI Backend.
 Handles environment variables, default providers, CORS origins, and n8n webhook settings.
 """
 
+import json
 import os
-from typing import List, Optional
+from typing import Any, List, Optional, Union
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -17,8 +19,11 @@ class BackendSettings(BaseSettings):
     PORT: int = 8000
     DEBUG: bool = False
 
-    # CORS: Explicit allowlist replacing insecure wildcard for authenticated SaaS deployment
-    CORS_ORIGINS: List[str] = [
+    # CORS: Explicit allowlist replacing insecure wildcard for authenticated SaaS deployment.
+    # Accepts list or comma-separated string from Render/deployment environment variables.
+    CORS_ORIGINS: Union[List[str], str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
         "http://localhost:8501",
         "http://127.0.0.1:8501",
         "http://localhost:8000",
@@ -27,6 +32,26 @@ class BackendSettings(BaseSettings):
         "http://127.0.0.1",
         "https://localhost",
     ]
+
+    @field_validator("CORS_ORIGINS", mode="after")
+    @classmethod
+    def assemble_cors_origins(cls, v: Any) -> List[str]:
+        """Parse list, JSON string, or comma-separated environment variables cleanly."""
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                return []
+            if v.startswith("[") and v.endswith("]"):
+                try:
+                    parsed = json.loads(v)
+                    if isinstance(parsed, list):
+                        return [str(item).strip() for item in parsed if str(item).strip()]
+                except Exception:
+                    pass
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        if isinstance(v, (list, tuple, set)):
+            return [str(item).strip() for item in v if str(item).strip()]
+        return [str(v)]
 
     # LLM Router Defaults (Gemini, OpenAI, Groq)
     DEFAULT_PROVIDER: str = "Google Gemini"

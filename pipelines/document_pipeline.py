@@ -119,6 +119,7 @@ def load_document(file_source: Any, filename: str) -> Dict[str, Any]:
     char_count = len(full_text)
     # Average adult reading speed: ~220 words per minute
     reading_time = round(max(0.5, words / 220.0), 1)
+    has_extractable_text = bool(full_text.strip())
 
     return {
         "filename": filename,
@@ -128,7 +129,10 @@ def load_document(file_source: Any, filename: str) -> Dict[str, Any]:
         "page_count": page_count,
         "word_count": words,
         "char_count": char_count,
-        "reading_time_min": reading_time
+        "character_count": char_count,
+        "preview": full_text,
+        "reading_time_min": reading_time,
+        "has_extractable_text": has_extractable_text,
     }
 
 

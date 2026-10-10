@@ -264,6 +264,50 @@ class TestFastAPIBackend(unittest.TestCase):
         self.assertEqual(resp_non_image.status_code, 400)
         self.assertIn("detail", resp_non_image.json())
 
+    def test_document_ingestion_and_contract_normalization(self):
+        """Verify /api/v1/documents/parse returns both backend and frontend compatibility fields."""
+        doc_content = "Annual Executive Summary: Q4 revenue reached $45.2M with 14% growth."
+        files = {"file": ("report.txt", io.BytesIO(doc_content.encode("utf-8")), "text/plain")}
+        resp = self.client.post("/api/v1/documents/parse", headers=self.headers, files=files)
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+
+        # Backend schema fields
+        self.assertEqual(data["filename"], "report.txt")
+        self.assertEqual(data["file_type"], "TXT")
+        self.assertIn("full_text", data)
+        self.assertIn("char_count", data)
+
+        # Frontend compatibility fields
+        self.assertIn("character_count", data)
+        self.assertEqual(data["character_count"], len(doc_content))
+        self.assertIn("preview", data)
+        self.assertEqual(data["preview"], data["full_text"])
+        self.assertTrue(data.get("has_extractable_text"))
+
+    def test_health_check_endpoint(self):
+        """Verify root /health endpoint returns healthy status for Next.js and monitoring."""
+        resp = self.client.get("/health")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data.get("status"), "healthy")
+
+    def test_cors_origins_parsing(self):
+        """Verify BackendSettings parses comma-separated CORS_ORIGINS environment variables."""
+        import os
+        from backend.config import BackendSettings
+        old_val = os.environ.get("CORS_ORIGINS")
+        try:
+            os.environ["CORS_ORIGINS"] = "https://ai-diagnoser.vercel.app, http://localhost:3000"
+            settings = BackendSettings()
+            self.assertIn("https://ai-diagnoser.vercel.app", settings.CORS_ORIGINS)
+            self.assertIn("http://localhost:3000", settings.CORS_ORIGINS)
+        finally:
+            if old_val is not None:
+                os.environ["CORS_ORIGINS"] = old_val
+            elif "CORS_ORIGINS" in os.environ:
+                del os.environ["CORS_ORIGINS"]
+
 
 if __name__ == "__main__":
     unittest.main()
