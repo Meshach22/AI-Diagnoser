@@ -9,6 +9,7 @@ End-to-End Enterprise Export Pipeline Verification:
 import os
 import unittest
 from core.ui_components import export_markdown_to_docx, export_markdown_to_pdf
+import pypdf
 from docx import Document
 
 
@@ -56,6 +57,13 @@ class TestExportPipeline(unittest.TestCase):
         self.assertGreater(len(pdf_bytes), 1000)
         self.assertTrue(pdf_bytes.startswith(b"%PDF"))
 
+        # Deep structural and semantic validation of table content
+        reader = pypdf.PdfReader(buf)
+        self.assertGreaterEqual(len(reader.pages), 1)
+        extracted = "".join(page.extract_text() or "" for page in reader.pages)
+        self.assertIn("Executive Performance Summary", extracted)
+        self.assertIn("Cloud Ingestion", extracted)
+
     def test_docx_export_raw_financial_document(self):
         """Verify DOCX export handles full raw text files cleanly."""
         buf = export_markdown_to_docx(self.sample_financial, title="Q3 Financials")
@@ -67,8 +75,18 @@ class TestExportPipeline(unittest.TestCase):
         """Verify PDF export handles full raw text files cleanly."""
         buf = export_markdown_to_pdf(self.sample_financial, title="Q3 Financials")
         pdf_bytes = buf.getvalue()
-        self.assertGreater(len(pdf_bytes), 5000)
+        # Binary size floor: must be a substantive PDF (exceeding empty 500-byte stubs)
+        self.assertGreater(len(pdf_bytes), 1000)
         self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+
+        # Deep structural and semantic validation of rendered document content
+        reader = pypdf.PdfReader(buf)
+        self.assertGreaterEqual(len(reader.pages), 1)
+        extracted = "".join(page.extract_text() or "" for page in reader.pages)
+        self.assertIn("AURORA TECHNOLOGIES", extracted)
+        self.assertIn("18.8", extracted)
+        self.assertIn("Q3 FINANCIALS", extracted.upper())
+        self.assertGreater(len(extracted), 2000)
 
 
 if __name__ == "__main__":
