@@ -6,6 +6,7 @@ Thin HTTP controller delegating to DataService.
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
+from backend.config import settings
 from backend.routers.auth import get_current_session
 from backend.schemas.data import (
     CorrelationResponse,
@@ -15,6 +16,7 @@ from backend.schemas.data import (
 )
 from backend.services.auth_service import SessionInfo
 from backend.services.data_service import DataService
+from backend.upload_utils import read_bounded_file, sanitize_filename
 
 router = APIRouter(prefix="/api/v1/data", tags=["Data Analytics"])
 
@@ -26,10 +28,12 @@ async def profile_dataset(
 ):
     """Delegates tabular data profiling and Data Health Card generation to DataService."""
     try:
-        content = await file.read()
-        filename = file.filename or "data.csv"
+        content = await read_bounded_file(file, max_bytes=settings.MAX_UPLOAD_SIZE_BYTES)
+        filename = sanitize_filename(file.filename, default_name="data.csv")
         health = DataService.profile_data(content, filename)
         return DataHealthCardResponse(**health)
+    except HTTPException:
+        raise
     except ValueError as val_err:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -82,10 +86,12 @@ async def get_correlation_matrix(
 ):
     """Delegates Pearson correlation matrix calculation to DataService (consuming authoritative data_pipeline)."""
     try:
-        content = await file.read()
-        filename = file.filename or "data.csv"
+        content = await read_bounded_file(file, max_bytes=settings.MAX_UPLOAD_SIZE_BYTES)
+        filename = sanitize_filename(file.filename, default_name="data.csv")
         result = DataService.compute_correlation(content, filename)
         return CorrelationResponse(**result)
+    except HTTPException:
+        raise
     except ValueError as val_err:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

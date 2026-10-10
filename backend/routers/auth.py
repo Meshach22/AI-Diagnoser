@@ -8,6 +8,8 @@ Provides endpoints for:
 - User registration (self-service signup)
 """
 
+import secrets
+import time
 from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -52,25 +54,32 @@ def get_current_session(
     auth_service: AuthService = Depends(get_auth_service),
 ) -> SessionInfo:
     """FastAPI dependency to require an active authenticated session."""
-    import time
+    # SEC-004: Fail-closed fallback strictly restricted to local DEBUG mode; NEVER grant admin privileges
     if not settings.AUTH_ENFORCE_API and not token:
-        # Development fallback only when API enforcement is explicitly disabled
-        return SessionInfo(
-            user_id=0,
-            email="developer@local",
-            name="Developer Mode",
-            role="admin",
-            is_admin=True,
-            created_at=time.time(),
-            expires_at=time.time() + 86400,
-            idle_expires_at=time.time() + 86400,
+        if settings.DEBUG:
+            return SessionInfo(
+                user_id=0,
+                email="developer@local",
+                name="Developer Mode (Unprivileged)",
+                role="user",
+                is_admin=False,
+                created_at=time.time(),
+                expires_at=time.time() + 86400,
+                idle_expires_at=time.time() + 86400,
+            )
+        # Production or non-debug environments must fail closed
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required. Please sign in.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Support n8n service-to-service integration when configured with a non-empty webhook secret
+    # SEC-003: Support n8n service-to-service integration with constant-time secret comparison
+    expected_secret = (settings.N8N_WEBHOOK_SECRET or "").strip()
     if (
-        settings.N8N_WEBHOOK_SECRET
-        and len(settings.N8N_WEBHOOK_SECRET) >= 8
-        and token == settings.N8N_WEBHOOK_SECRET
+        token
+        and len(expected_secret) >= 8
+        and secrets.compare_digest(token.strip(), expected_secret)
     ):
         return SessionInfo(
             user_id=1,

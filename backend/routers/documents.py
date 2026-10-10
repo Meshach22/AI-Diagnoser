@@ -6,6 +6,7 @@ Thin HTTP controller delegating to DocumentService.
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
+from backend.config import settings
 from backend.routers.auth import get_current_session
 from backend.schemas.documents import (
     DocumentAnalysisResponse,
@@ -15,6 +16,7 @@ from backend.schemas.documents import (
 )
 from backend.services.auth_service import SessionInfo
 from backend.services.document_service import DocumentService
+from backend.upload_utils import read_bounded_file, sanitize_filename
 
 router = APIRouter(prefix="/api/v1/documents", tags=["Documents Intelligence"])
 
@@ -27,10 +29,12 @@ async def upload_document(
 ):
     """Accepts PDF, DOCX, TXT, or MD files, delegates to DocumentService for parsing."""
     try:
-        content = await file.read()
-        filename = file.filename or "document.txt"
+        content = await read_bounded_file(file, max_bytes=settings.MAX_UPLOAD_SIZE_BYTES)
+        filename = sanitize_filename(file.filename, default_name="document.txt")
         doc_data = DocumentService.ingest_document(content, filename)
         return DocumentIngestResponse(**doc_data)
+    except HTTPException:
+        raise
     except ValueError as val_err:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

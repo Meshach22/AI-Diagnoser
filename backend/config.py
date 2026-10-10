@@ -85,6 +85,10 @@ class BackendSettings(BaseSettings):
     AUTH_ALLOW_SIGNUP: bool = False            # self-service registration (off by default)
     AUTH_ENFORCE_API: bool = True              # require a session on user-facing API routes
 
+    # Upload Limits (SEC-002: Bounded upload size to protect container memory)
+    MAX_UPLOAD_SIZE_MB: int = 25
+    MAX_UPLOAD_SIZE_BYTES: int = 25 * 1024 * 1024
+
     class Config:
         env_file = ".env"
         extra = "allow"
