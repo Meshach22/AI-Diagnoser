@@ -645,6 +645,103 @@ def _query_ollama(
 
 
 # ---------------------------------------------------------------------------
+# Boundary Delimiter Escaping & Unescaping Guardrails
+# ---------------------------------------------------------------------------
+DOC_OPEN_RE = re.compile(r"<\s*untrusted_document_context(?:\s+[^>]*|\s*)/?>", re.IGNORECASE)
+DOC_CLOSE_RE = re.compile(r"<\s*/\s*untrusted_document_context(?:\s+[^>]*|\s*)>", re.IGNORECASE)
+QUERY_OPEN_RE = re.compile(r"<\s*user_query(?:\s+[^>]*|\s*)/?>", re.IGNORECASE)
+QUERY_CLOSE_RE = re.compile(r"<\s*/\s*user_query(?:\s+[^>]*|\s*)>", re.IGNORECASE)
+
+ALL_BOUNDARY_TAGS_RE = re.compile(
+    r"<\s*/?\s*(?:untrusted_document_context|user_query)(?:\s+[^>]*|\s*)/?>",
+    re.IGNORECASE
+)
+
+
+def escape_boundary_tags(text: str) -> str:
+    """Neutralize boundary tags inside untrusted text to prevent context breakout attacks."""
+    if not text:
+        return ""
+
+    def _escape_match(m):
+        raw = m.group(0)
+        return raw.replace("<", "&lt;").replace(">", "&gt;")
+
+    text = re.sub(r"<\s*/?\s*untrusted_document_context(?:\s+[^>]*|\s*)/?>", _escape_match, text, flags=re.IGNORECASE)
+    text = re.sub(r"<\s*/?\s*user_query(?:\s+[^>]*|\s*)/?>", _escape_match, text, flags=re.IGNORECASE)
+    return text
+
+
+def unescape_boundary_tags(text: str) -> str:
+    """Restore neutralized boundary tags back to their original form."""
+    if not text:
+        return ""
+
+    def _unescape_match(m):
+        raw = m.group(0)
+        return raw.replace("&lt;", "<").replace("&gt;", ">")
+
+    text = re.sub(r"&lt;\s*/?\s*untrusted_document_context(?:\s+[^&]*|\s*)/?&gt;", _unescape_match, text, flags=re.IGNORECASE)
+    text = re.sub(r"&lt;\s*/?\s*user_query(?:\s+[^&]*|\s*)/?&gt;", _unescape_match, text, flags=re.IGNORECASE)
+    return text
+
+
+def extract_prompt_envelope(prompt: str) -> Tuple[Optional[str], Optional[str]]:
+    """Extract (document_text, user_query) from prompt envelope, resilient to case, whitespace, and attributes.
+
+    Returns raw strings in their escaped state so they remain strictly isolated from structural parsing.
+    """
+    if not prompt:
+        return None, None
+
+    open_doc = DOC_OPEN_RE.search(prompt)
+    open_query = QUERY_OPEN_RE.search(prompt)
+
+    # 1. Both document and user query envelopes are present (QA format)
+    if open_doc and open_query and open_query.start() > open_doc.end():
+        doc_start = open_doc.end()
+        query_open_start = open_query.start()
+
+        # Outermost closing doc tag before query opens
+        doc_closes = [m for m in DOC_CLOSE_RE.finditer(prompt, doc_start) if m.end() <= query_open_start]
+        if doc_closes:
+            doc_text = prompt[doc_start:doc_closes[-1].start()].strip()
+        else:
+            doc_text = prompt[doc_start:query_open_start].strip()
+
+        q_start = open_query.end()
+        query_closes = list(QUERY_CLOSE_RE.finditer(prompt, q_start))
+        if query_closes:
+            query_text = prompt[q_start:query_closes[-1].start()].strip()
+        else:
+            query_text = prompt[q_start:].strip()
+
+        return doc_text, query_text
+
+    # 2. Document envelope only (Summarization format)
+    if open_doc:
+        doc_start = open_doc.end()
+        doc_closes = list(DOC_CLOSE_RE.finditer(prompt, doc_start))
+        if doc_closes:
+            doc_text = prompt[doc_start:doc_closes[-1].start()].strip()
+        else:
+            doc_text = prompt[doc_start:].strip()
+        return doc_text, None
+
+    # 3. User query envelope only
+    if open_query:
+        q_start = open_query.end()
+        query_closes = list(QUERY_CLOSE_RE.finditer(prompt, q_start))
+        if query_closes:
+            query_text = prompt[q_start:query_closes[-1].start()].strip()
+        else:
+            query_text = prompt[q_start:].strip()
+        return None, query_text
+
+    return None, None
+
+
+# ---------------------------------------------------------------------------
 # Provider 6: Offline Heuristics Engine (No-Echo Pillow & TF-IDF Extraction)
 # ---------------------------------------------------------------------------
 def execute_offline_heuristics(prompt: str, image: Optional[Image.Image] = None) -> str:
@@ -717,6 +814,10 @@ def execute_offline_heuristics(prompt: str, image: Optional[Image.Image] = None)
         )
 
     # Document / Text NLP Analysis
+    env_doc, _ = extract_prompt_envelope(prompt)
+    if env_doc is not None:
+        doc_text = unescape_boundary_tags(env_doc)
+        return OfflineHeuristicsEngine.summarize_document(doc_text, is_extracted_content=True)
     return OfflineHeuristicsEngine.summarize_document(prompt)
 
 
@@ -759,42 +860,81 @@ class OfflineHeuristicsEngine:
 
         return sorted(tfidf_scores.items(), key=lambda x: x[1], reverse=True)[:top_n]
 
+    PROMPT_INJECTION_PATTERN = re.compile(
+        r"(?:"
+        r"(?:ignore|disregard|forget)\s+(?:all\s+)?(?:previous|prior|above)\s+(?:instructions|commands|directives|prompts)|"
+        r"(?:system|admin|root|developer)\s*(?:override|mode|directive)|"
+        r"(?:reveal|leak|print|show)\s+(?:all\s+)?(?:master|system|hidden|secret|api[_\s-]?key|environment|token|password)|"
+        r"(?:you\s+are\s+now|new\s+role|act\s+as\s+(?:root|admin|antigravity))|"
+        r"(?:execute\s+(?:command|code|script|bash)|install\s+(?:packages?|-g)|curl\s+http|wget\s+http|rm\s+-rf|npm\s+install|pip\s+install)|"
+        r"(?:always\s+)?(?:tell|instruct|order|force)\s+(?:the\s+user|the\s+assistant|model)\s+(?:to|that)\b|"
+        r"always\s+(?:recommend|say|respond|output|instruct|tell)\s+(?:that|to)?\b"
+        r")",
+        re.IGNORECASE
+    )
+
     @classmethod
-    def summarize_document(cls, text: str, max_sentences: int = 5) -> str:
-        sentences = cls._split_sentences(text)
-        if not sentences:
+    def summarize_document(cls, text: str, max_sentences: int = 5, is_extracted_content: bool = False) -> str:
+        # If not already extracted content, check for outer envelope or system directives
+        if not is_extracted_content:
+            env_doc, _ = extract_prompt_envelope(text)
+            if env_doc is not None:
+                text = unescape_boundary_tags(env_doc)
+            elif "[SECURITY DIRECTIVE]" in text:
+                text = re.sub(
+                    r"\[SECURITY DIRECTIVE\][\s\S]*?(?:Structure your response|Extract all|\n\n(?=[A-Z0-9]))",
+                    "",
+                    text,
+                    flags=re.IGNORECASE
+                )
+
+        # Neutralize any literal boundary tags in document text without dropping content
+        text = ALL_BOUNDARY_TAGS_RE.sub(" ", text).strip()
+
+        raw_sentences = cls._split_sentences(text)
+        if not raw_sentences:
             return "No extractable text sentences found in the provided content."
 
+        # Filter out active prompt-injection payloads from scoring candidates
+        sentences = [s for s in raw_sentences if not cls.PROMPT_INJECTION_PATTERN.search(s)]
+        if not sentences:
+            return (
+                "### 📋 Executive Summary (Algorithmic Synthesis)\n\n"
+                "⚠️ No extractable factual document content found. "
+                "All identified text segments matched security policy restriction filters and were rejected as untrusted directives.\n\n"
+                "> *Generated via Offline Heuristics Engine. Factual analysis requires legitimate analytical or operational data.*"
+            )
+
         if len(sentences) <= max_sentences:
-            return " ".join(sentences)
+            summary_text = " ".join(sentences)
+        else:
+            keywords = dict(cls._extract_keywords(sentences, top_n=20))
+            scored_sentences = []
+            for i, s in enumerate(sentences):
+                tokens = cls._tokenize(s)
+                score = 0.0
+                for t in tokens:
+                    score += keywords.get(t, 0.0)
 
-        keywords = dict(cls._extract_keywords(sentences, top_n=20))
-        scored_sentences = []
-        for i, s in enumerate(sentences):
-            tokens = cls._tokenize(s)
-            score = 0.0
-            for t in tokens:
-                score += keywords.get(t, 0.0)
+                if i < 2:
+                    score *= 1.3
+                elif i > len(sentences) - 3:
+                    score *= 1.2
 
-            if i < 2:
-                score *= 1.3
-            elif i > len(sentences) - 3:
-                score *= 1.2
+                lower_s = s.lower()
+                for cue in CUE_PHRASES:
+                    if cue in lower_s:
+                        score *= 1.4
+                        break
 
-            lower_s = s.lower()
-            for cue in CUE_PHRASES:
-                if cue in lower_s:
-                    score *= 1.4
-                    break
+                if re.search(r"\b\d+(\.\d+)?%|\$\d+|\b\d{4}\b", s):
+                    score *= 1.15
 
-            if re.search(r"\b\d+(\.\d+)?%|\$\d+|\b\d{4}\b", s):
-                score *= 1.15
+                scored_sentences.append((i, s, score))
 
-            scored_sentences.append((i, s, score))
-
-        top_sentences = sorted(scored_sentences, key=lambda x: x[2], reverse=True)[:max_sentences]
-        top_sentences.sort(key=lambda x: x[0])
-        summary_text = " ".join([item[1] for item in top_sentences])
+            top_sentences = sorted(scored_sentences, key=lambda x: x[2], reverse=True)[:max_sentences]
+            top_sentences.sort(key=lambda x: x[0])
+            summary_text = " ".join([item[1] for item in top_sentences])
 
         metrics = re.findall(r"(\$[\d,]+(?:\.\d+)?|\b\d+(?:\.\d+)?%|\b(?:Q[1-4]|20\d\d)\b)", text)
         metrics_unique = list(dict.fromkeys(metrics))[:6]
@@ -803,21 +943,45 @@ class OfflineHeuristicsEngine:
             metrics_block = "\n\n**Key Quantitative Anchors:** " + " • ".join([f"`{m}`" for m in metrics_unique])
 
         action_verbs = r"\b(recommend|must|should|ensure|prioritize|implement|develop|review|target)\b"
-        action_candidates = [s for s in sentences if re.search(action_verbs, s, re.IGNORECASE)]
+        action_candidates = [
+            s for s in sentences
+            if re.search(action_verbs, s, re.IGNORECASE) and not cls.PROMPT_INJECTION_PATTERN.search(s)
+        ]
         action_block = ""
         if action_candidates:
-            action_block = "\n\n**Identified Strategic Takeaways & Actions:**\n" + "\n".join([f"- {s}" for s in action_candidates[:3]])
+            action_block = "\n\n**Document Recommendations & Strategic Observations (Extracted Content):**\n" + "\n".join([f"- {s}" for s in action_candidates[:3]])
 
         return (
             f"### 📋 Executive Summary (Algorithmic Synthesis)\n\n"
             f"{summary_text}"
             f"{metrics_block}"
             f"{action_block}\n\n"
-            f"> *Generated via Offline Heuristics Engine (TF-IDF & Extractive Sentence Centrality).*"
+            f"> *Generated via Offline Heuristics Engine (TF-IDF & Extractive Sentence Centrality). All extracted directives are passive document data.*"
         )
 
     @classmethod
-    def answer_question(cls, question: str, context: str) -> str:
+    def answer_question(cls, question: str, context: str, is_extracted_content: bool = False) -> str:
+        if not is_extracted_content:
+            env_doc, _ = extract_prompt_envelope(context)
+            if env_doc is not None:
+                context = unescape_boundary_tags(env_doc)
+            _, env_q = extract_prompt_envelope(question)
+            if env_q is not None:
+                question = unescape_boundary_tags(env_q)
+
+        # Neutralize any literal boundary tags in content without dropping surrounding text
+        context = ALL_BOUNDARY_TAGS_RE.sub(" ", context)
+        question = ALL_BOUNDARY_TAGS_RE.sub(" ", question)
+
+        # Guard against queries attempting to extract secrets or execute commands
+        if re.search(r"\b(reveal|show|print|leak)\b.*\b(system\s*prompt|api[_\s-]?key|secret|password|env|token)\b", question, re.IGNORECASE) or \
+           re.search(r"\b(execute|run)\b.*\b(command|bash|shell|npm|curl)\b", question, re.IGNORECASE):
+            return (
+                "🛡️ **Security Policy Enforcement**\n\n"
+                "The Document Intelligence Engine cannot fulfill requests to reveal system prompts, credentials, or execute external commands. "
+                "Queries are strictly limited to factual analysis of the provided document content."
+            )
+
         sentences = cls._split_sentences(context)
         if not sentences:
             return "Unable to answer: Document context is empty."
@@ -970,6 +1134,18 @@ def _query_offline(prompt: str, image_data: Optional[Any] = None) -> str:
     if pil_image is not None:
         return execute_offline_heuristics(prompt=prompt, image=pil_image)
 
+    # 1. Parse structured untrusted boundary tags if present (from document_pipeline)
+    env_doc, env_query = extract_prompt_envelope(prompt)
+    if env_doc is not None and env_query is not None:
+        context = unescape_boundary_tags(env_doc)
+        question = unescape_boundary_tags(env_query)
+        return OfflineHeuristicsEngine.answer_question(question, context, is_extracted_content=True)
+
+    if env_doc is not None:
+        doc_text = unescape_boundary_tags(env_doc)
+        return OfflineHeuristicsEngine.summarize_document(doc_text, is_extracted_content=True)
+
+    # 2. Check for legacy Context / Query format
     qa_match = re.search(r"(?:Context|Document Content):\s*(.*?)\s*(?:Question|Query):\s*(.*)", prompt, re.DOTALL | re.IGNORECASE)
     if qa_match:
         context, question = qa_match.group(1), qa_match.group(2)
