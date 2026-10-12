@@ -9,13 +9,26 @@ import base64
 import concurrent.futures
 import io
 import json
+import logging
 import math
 import os
 import re
+import threading
 import time
 from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple, Union
 from PIL import Image, ImageOps
+
+from core.prompt_policy import ANALYST_SYSTEM_PROMPT
+
+logger = logging.getLogger("core.llm_router")
+
+# Global reusable client caches to prevent repeatedly reinitializing clients on every request
+_CLIENT_CACHE: Dict[Tuple[Any, ...], Any] = {}
+_CLIENT_CACHE_LOCK = threading.Lock()
+_CACHED_GEMINI_KEY: Optional[str] = None
+_UNAVAILABLE_GEMINI_MODELS: set = set()
+_TIMEOUT_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="llm_router_worker")
 
 # ---------------------------------------------------------------------------
 # Provider Modality Capability Registries
@@ -221,14 +234,13 @@ def compress_and_downsample_image(
         return image
 
 
-def _execute_with_timeout(func, timeout_seconds=6.0, *args, **kwargs):
-    """Executes a function under a strict timeout (default 6.0s) to guard against UI freezes."""
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(func, *args, **kwargs)
-        try:
-            return future.result(timeout=timeout_seconds)
-        except concurrent.futures.TimeoutError:
-            raise TimeoutError(f"API call timed out after {timeout_seconds}s strict latency limit.")
+def _execute_with_timeout(func, timeout_seconds=12.0, *args, **kwargs):
+    """Executes a function under a configurable timeout (default 12.0s) using the shared executor."""
+    future = _TIMEOUT_EXECUTOR.submit(func, *args, **kwargs)
+    try:
+        return future.result(timeout=timeout_seconds)
+    except concurrent.futures.TimeoutError:
+        raise TimeoutError(f"API call timed out after {timeout_seconds}s strict latency limit.")
 
 
 def encode_image_to_base64(image_source: Any, target_format: str = "JPEG") -> Tuple[str, str]:
@@ -276,40 +288,61 @@ def _image_to_base64(image: Any, format_name: str = "JPEG") -> Tuple[str, str]:
 # ---------------------------------------------------------------------------
 def _query_gemini(
     prompt: str,
-    model_name: str = "gemini-3.8-flash",
+    model_name: str = "gemini-2.5-flash",
     api_key: Optional[str] = None,
     image_data: Optional[Any] = None
 ) -> str:
-    """Execute query using Google Generative AI SDK with Gemini 3.8 Flash / 3 rate-limit cascading."""
-    resolved_key = _resolve_master_api_key(
-        api_key,
-        secret_names=["gemini_api_key", "GEMINI_API_KEY", "google_api_key", "GOOGLE_API_KEY"],
-        env_names=["GEMINI_API_KEY", "GOOGLE_API_KEY"]
+    """Execute query using Google Generative AI SDK with live supported Gemini model."""
+    global _CACHED_GEMINI_KEY
+    resolved_key = (
+        (api_key.strip() if api_key and str(api_key).strip() else None)
+        or os.getenv("GEMINI_API_KEY")
+        or os.getenv("GOOGLE_API_KEY")
+        or _resolve_master_api_key(
+            api_key,
+            secret_names=["gemini_api_key", "GEMINI_API_KEY", "google_api_key", "GOOGLE_API_KEY"],
+            env_names=["GEMINI_API_KEY", "GOOGLE_API_KEY"]
+        )
     )
 
     if not resolved_key:
+        print("[GEMINI ERROR] Google Gemini API Key missing (checked GEMINI_API_KEY, GOOGLE_API_KEY, and secrets).", flush=True)
+        logger.error("[GEMINI ERROR] Google Gemini API Key missing.")
         raise ValueError("Google Gemini Master Key Missing")
 
     try:
         import google.generativeai as genai
     except ImportError:
+        print("[GEMINI ERROR] `google-generativeai` package is not installed.", flush=True)
         raise RuntimeError("`google-generativeai` package is not installed.")
 
-    genai.configure(api_key=resolved_key)
-    clean_model_name = (model_name or "gemini-3.8-flash").replace("models/", "").strip()
+    # Cache configure invocation to avoid repeatedly mutating global SDK state on every call
+    if _CACHED_GEMINI_KEY != resolved_key:
+        genai.configure(api_key=resolved_key)
+        _CACHED_GEMINI_KEY = resolved_key
 
-    model_candidates = [clean_model_name]
+    clean_model_name = (model_name or "gemini-2.5-flash").replace("models/", "").strip()
+
+    # Build clean candidate list: requested model first, then verified working flash models
+    model_candidates = []
+    if clean_model_name not in _UNAVAILABLE_GEMINI_MODELS:
+        model_candidates.append(clean_model_name)
     fallback_pool = [
-        "gemini-3.8-flash",
+        "gemini-flash-lite-latest",
         "gemini-flash-latest",
         "gemini-3.5-flash",
-        "gemini-3.1-pro-preview",
-        "gemini-3.1-flash-lite",
-        "gemini-3-flash-preview"
+        "gemini-2.5-flash",
+        "gemini-1.5-flash",
     ]
     for m in fallback_pool:
-        if m not in model_candidates:
+        if m not in _UNAVAILABLE_GEMINI_MODELS and m not in model_candidates:
             model_candidates.append(m)
+
+    if not model_candidates:
+        model_candidates = ["gemini-flash-lite-latest", "gemini-flash-latest"]
+
+    # Restrict to at most 3 candidates to cut latency and ensure execution within strict 10-12s limit
+    model_candidates = model_candidates[:3]
 
     pil_image = _prepare_pil_image(image_data)
     if pil_image:
@@ -318,7 +351,7 @@ def _query_gemini(
     last_error = None
     gen_config = {"temperature": 0.1, "max_output_tokens": 2048}
 
-    for candidate in model_candidates:
+    for idx, candidate in enumerate(model_candidates):
         try:
             model = genai.GenerativeModel(candidate, generation_config=gen_config)
             if pil_image:
@@ -331,11 +364,23 @@ def _query_gemini(
         except Exception as e:
             last_error = e
             err_msg = str(e).lower()
-            if "api_key_invalid" in err_msg or "invalid api key" in err_msg:
+            print(f"[GEMINI ERROR] Model '{candidate}' call failed: {type(e).__name__}: {e}", flush=True)
+            logger.error("Gemini model '%s' call failed: %s", candidate, e, exc_info=True)
+            if "404" in err_msg or "not found" in err_msg or "not available" in err_msg or "is no longer available" in err_msg or "429" in err_msg or "quota" in err_msg or "resourceexhausted" in err_msg:
+                _UNAVAILABLE_GEMINI_MODELS.add(candidate)
+            if "api_key_invalid" in err_msg or "invalid api key" in err_msg or "401" in err_msg or "403" in err_msg:
                 raise e
+            next_model = model_candidates[idx + 1] if idx + 1 < len(model_candidates) else "None"
+            logger.warning(
+                "Gemini model '%s' failed (%s); trying fallback to '%s'",
+                candidate,
+                type(e).__name__,
+                next_model
+            )
             continue
 
     if last_error:
+        print(f"[GEMINI ERROR] All Gemini candidate models failed. Last exception: {type(last_error).__name__}: {last_error}", flush=True)
         raise last_error
     raise RuntimeError("Empty response received from Gemini.")
 
@@ -365,7 +410,13 @@ def _query_openai(
         raise RuntimeError("`openai` package is not installed.")
 
     try:
-        client = OpenAI(api_key=resolved_key, timeout=6.0)
+        with _CLIENT_CACHE_LOCK:
+            client_key = ("openai", resolved_key)
+            client = _CLIENT_CACHE.get(client_key)
+            if client is None:
+                client = OpenAI(api_key=resolved_key, timeout=12.0)
+                _CLIENT_CACHE[client_key] = client
+
         pil_image = _prepare_pil_image(image_data)
         if pil_image:
             pil_image = compress_and_downsample_image(pil_image, max_dim=1024, quality=85)
@@ -385,7 +436,7 @@ def _query_openai(
             ]
         else:
             messages = [
-                {"role": "system", "content": "You are an expert document and multimodal intelligence assistant. Deliver precise, structured, and insightful analysis."},
+                {"role": "system", "content": ANALYST_SYSTEM_PROMPT},
                 {"role": "user", "content": prompt}
             ]
 
@@ -410,7 +461,7 @@ def _query_openai(
         if "insufficient_quota" in err_str or "credit_balance" in err_str or "402" in err_str or "quota" in err_str or "balance" in err_str:
             LAST_TELEMETRY["active_provider"] = "Google Gemini"
             LAST_TELEMETRY["failover_badge"] = "Primary Failed (OpenAI 402 Quota) -> Fallback: Gemini"
-            return _query_gemini(prompt=prompt, model_name="gemini-3.8-flash", api_key=api_key, image_data=image_data)
+            return _query_gemini(prompt=prompt, model_name="gemini-3.5-flash", api_key=api_key, image_data=image_data)
 
         raise e
 
@@ -425,7 +476,7 @@ def _query_deepseek(
     image_data: Optional[Any] = None,
     base_url: str = "https://api.deepseek.com/v1"
 ) -> str:
-    """Execute query using DeepSeek text API with pre-flight vision interception and 6s timeout."""
+    """Execute query using DeepSeek text API with pre-flight vision interception."""
     pil_image = _prepare_pil_image(image_data)
     if pil_image:
         LAST_TELEMETRY["active_provider"] = "Offline Heuristics"
@@ -455,9 +506,15 @@ def _query_deepseek(
     if not effective_base_url.endswith("/v1"):
         effective_base_url += "/v1"
 
-    client = OpenAI(api_key=resolved_key, base_url=effective_base_url, timeout=6.0)
+    with _CLIENT_CACHE_LOCK:
+        client_key = ("deepseek", resolved_key, effective_base_url)
+        client = _CLIENT_CACHE.get(client_key)
+        if client is None:
+            client = OpenAI(api_key=resolved_key, base_url=effective_base_url, timeout=12.0)
+            _CLIENT_CACHE[client_key] = client
+
     messages = [
-        {"role": "system", "content": "You are DeepSeek, an expert intelligence assistant. Provide rigorous, structured, and insightful analysis."},
+        {"role": "system", "content": ANALYST_SYSTEM_PROMPT},
         {"role": "user", "content": prompt}
     ]
 
@@ -482,7 +539,7 @@ def _query_groq(
     api_key: Optional[str] = None,
     image_data: Optional[Any] = None
 ) -> str:
-    """Execute query using Groq high-speed cloud inference API with 6s timeout."""
+    """Execute query using Groq high-speed cloud inference API with client caching."""
     resolved_key = _resolve_master_api_key(
         api_key,
         secret_names=["groq_api_key", "GROQ_API_KEY"],
@@ -497,7 +554,13 @@ def _query_groq(
     except ImportError:
         raise RuntimeError("`groq` package is not installed.")
 
-    client = Groq(api_key=resolved_key, timeout=6.0)
+    with _CLIENT_CACHE_LOCK:
+        client_key = ("groq", resolved_key)
+        client = _CLIENT_CACHE.get(client_key)
+        if client is None:
+            client = Groq(api_key=resolved_key, timeout=12.0)
+            _CLIENT_CACHE[client_key] = client
+
     pil_image = _prepare_pil_image(image_data)
     if pil_image:
         pil_image = compress_and_downsample_image(pil_image, max_dim=1024, quality=85)
@@ -524,7 +587,7 @@ def _query_groq(
         )
     else:
         messages = [
-            {"role": "system", "content": "You are an expert document and multimodal intelligence assistant. Deliver precise, structured, and insightful analysis."},
+            {"role": "system", "content": ANALYST_SYSTEM_PROMPT},
             {"role": "user", "content": prompt}
         ]
         response = client.chat.completions.create(
@@ -794,23 +857,23 @@ def execute_offline_heuristics(prompt: str, image: Optional[Image.Image] = None)
         swatch_str = " • ".join(top_swatches) if top_swatches else "`#Unknown`"
 
         return (
-            f"### 🛡️ Offline Heuristics Diagnostic Report\n\n"
-            f"> ⚠️ *Remote vision APIs were unavailable. Extracted physical image metrics and geometry.* \n\n"
-            f"### 1. Visual Classification\n"
-            f"**Graphic Modality**: {'Chart / Diagram Visualization' if std_lum > 25 else ('Document / Receipt Scan' if aspect_ratio < 0.9 else 'General Visual Artifact')}\n\n"
-            f"### 2. Key Data Points & Visual Metrics\n"
+            f"### Visual Overview\n\n"
+            f"> *Analysis extracted from image geometry and color metrics.*\n\n"
+            f"### Visual Classification\n"
+            f"- **Type**: {'Chart or Diagram' if std_lum > 25 else ('Document or Scan' if aspect_ratio < 0.9 else 'General Image')}\n\n"
+            f"### Key Data Points & Visual Metrics\n"
             f"- **Resolution**: `{width} × {height} px` ({megapixels} MP)\n"
-            f"- **Aspect Geometry**: `{aspect_desc}` ({aspect_ratio}:1)\n"
+            f"- **Aspect Ratio**: `{aspect_desc}` ({aspect_ratio}:1)\n"
             f"- **Color Space & Format**: `{mode}` / `{format_name}`\n"
-            f"- **Average Luminance**: `{avg_brightness}%` ({'Light/High-key' if avg_brightness > 55 else 'Dark/Low-key'})\n"
-            f"- **Contrast Profile**: `{contrast_desc}` (Std Dev: `{std_lum}%`)\n"
-            f"- **Primary Dominant Hue**: `{dominant_hex}`\n"
+            f"- **Average Brightness**: `{avg_brightness}%` ({'Light' if avg_brightness > 55 else 'Dark'})\n"
+            f"- **Contrast**: `{contrast_desc}` (Std Dev: `{std_lum}%`)\n"
+            f"- **Dominant Color**: `{dominant_hex}`\n"
             f"- **Color Palette**: {swatch_str}\n\n"
-            f"### 3. Executive Summary & Layout Insights\n"
-            f"- Structured image artifact verified with valid dimensions `{width}x{height}`.\n"
-            f"- Luminance profile indicates {'high-visibility light background' if avg_brightness > 50 else 'dark surface aesthetic'}.\n"
-            f"- Palette distribution clusters across {len(top_swatches)} primary color anchors.\n\n"
-            f"> *⚡ Generated via Offline Heuristics Engine (PIL Quantitative Spatial & Color Geometry Analysis).*"
+            f"### Observations & Quality Assessment\n"
+            f"- Image verified with dimensions `{width}x{height}`.\n"
+            f"- Tone indicates {'a light, high-visibility background' if avg_brightness > 50 else 'a dark background aesthetic'}.\n"
+            f"- Color distribution clusters across {len(top_swatches)} dominant anchor tones.\n\n"
+            f"> *Note: Generated via offline quantitative image metrics.*"
         )
 
     # Document / Text NLP Analysis
@@ -899,10 +962,10 @@ class OfflineHeuristicsEngine:
         sentences = [s for s in raw_sentences if not cls.PROMPT_INJECTION_PATTERN.search(s)]
         if not sentences:
             return (
-                "### 📋 Executive Summary (Algorithmic Synthesis)\n\n"
-                "⚠️ No extractable factual document content found. "
+                "### Executive Summary\n\n"
+                "No extractable factual document content found. "
                 "All identified text segments matched security policy restriction filters and were rejected as untrusted directives.\n\n"
-                "> *Generated via Offline Heuristics Engine. Factual analysis requires legitimate analytical or operational data.*"
+                "> *Note: Factual analysis requires legitimate analytical or operational text.*"
             )
 
         if len(sentences) <= max_sentences:
@@ -940,7 +1003,7 @@ class OfflineHeuristicsEngine:
         metrics_unique = list(dict.fromkeys(metrics))[:6]
         metrics_block = ""
         if metrics_unique:
-            metrics_block = "\n\n**Key Quantitative Anchors:** " + " • ".join([f"`{m}`" for m in metrics_unique])
+            metrics_block = "\n\n**Key Figures:** " + " • ".join([f"`{m}`" for m in metrics_unique])
 
         action_verbs = r"\b(recommend|must|should|ensure|prioritize|implement|develop|review|target)\b"
         action_candidates = [
@@ -949,14 +1012,14 @@ class OfflineHeuristicsEngine:
         ]
         action_block = ""
         if action_candidates:
-            action_block = "\n\n**Document Recommendations & Strategic Observations (Extracted Content):**\n" + "\n".join([f"- {s}" for s in action_candidates[:3]])
+            action_block = "\n\n**Key Recommendations in Document:**\n" + "\n".join([f"- {s}" for s in action_candidates[:3]])
 
         return (
-            f"### 📋 Executive Summary (Algorithmic Synthesis)\n\n"
+            f"### Executive Summary\n\n"
             f"{summary_text}"
             f"{metrics_block}"
             f"{action_block}\n\n"
-            f"> *Generated via Offline Heuristics Engine (TF-IDF & Extractive Sentence Centrality). All extracted directives are passive document data.*"
+            f"> *Note: Summary extracted directly from document text.*"
         )
 
     @classmethod
@@ -1001,19 +1064,18 @@ class OfflineHeuristicsEngine:
         scored.sort(key=lambda x: x[0], reverse=True)
 
         if not scored or scored[0][0] < 0.05:
+            topic_str = ", ".join([f"'{t}'" for t in sorted(q_tokens)[:4]])
             return (
-                "🔍 **No Direct Match Found**\n\n"
-                f"The document does not appear to contain direct discussion of: `{', '.join(q_tokens)}`.\n"
-                "Try phrasing your question using alternate terms found in the text."
+                f"The provided document does not appear to discuss {topic_str}. "
+                "Try phrasing your question with alternate terms or review the executive summary."
             )
 
         best_matches = scored[:3]
-        response_lines = ["### 🎯 Document Answer & Retrieved Evidence\n"]
-        for idx, (score, sent, matched_words) in enumerate(best_matches, 1):
-            keywords_matched = ", ".join([f"`{w}`" for w in matched_words])
-            response_lines.append(f"**Point {idx}** (Matched {keywords_matched}):\n> \"{sent}\"\n")
+        response_lines = ["### Relevant Excerpts from Document\n"]
+        for score, sent, matched_words in best_matches:
+            response_lines.append(f"> \"{sent}\"\n")
 
-        response_lines.append("> *Retrieved via Offline Semantic Overlap Ranker.*")
+        response_lines.append("> *Note: Retrieved based on textual keyword overlap.*")
         return "\n".join(response_lines)
 
     @classmethod
@@ -1188,7 +1250,7 @@ class LLMRouter:
         prompt: str,
         provider: str = "Google Gemini",
         image_data: Any = None,
-        model_name: Optional[str] = "gemini-3.8-flash",
+        model_name: Optional[str] = "gemini-3.5-flash",
         api_key: Optional[str] = None,
         **kwargs
     ) -> str:
@@ -1224,7 +1286,7 @@ class LLMRouter:
                     cand_model = model_name if canonical == "openai" else "gpt-4o-mini"
                     res = _execute_with_timeout(
                         _query_openai,
-                        6.0,
+                        15.0,
                         prompt=prompt,
                         model_name=cand_model,
                         api_key=cand_key,
@@ -1236,10 +1298,10 @@ class LLMRouter:
                         return res
                 elif candidate == "gemini":
                     cand_key = api_key if canonical == "gemini" else None
-                    cand_model = model_name if canonical == "gemini" and model_name else "gemini-3.8-flash"
+                    cand_model = model_name if canonical == "gemini" and model_name else "gemini-2.5-flash"
                     res = _execute_with_timeout(
                         _query_gemini,
-                        6.0,
+                        12.0,
                         prompt=prompt,
                         model_name=cand_model,
                         api_key=cand_key,
@@ -1253,7 +1315,7 @@ class LLMRouter:
                     base_url = kwargs.get("base_url", "http://localhost:11434")
                     res = _execute_with_timeout(
                         _query_ollama,
-                        6.0,
+                        12.0,
                         prompt=prompt,
                         model_name="llava",
                         base_url=base_url,
@@ -1267,8 +1329,9 @@ class LLMRouter:
                     LAST_TELEMETRY["active_provider"] = "Offline Heuristics"
                     LAST_TELEMETRY["fallback_depth"] = fallback_depth + 1
                     return execute_offline_heuristics(prompt=prompt, image=pil_image)
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[LLM ROUTER VISION ERROR] Candidate '{candidate}' failed with exception: {type(exc).__name__}: {exc}", flush=True)
+                logger.error(f"[LLM ROUTER VISION ERROR] Candidate '{candidate}' failed: {exc}", exc_info=True)
             fallback_depth += 1
 
         LAST_TELEMETRY["active_provider"] = "Offline Heuristics"
@@ -1280,27 +1343,27 @@ class LLMRouter:
         cls,
         prompt: str,
         provider: str = "Google Gemini",
-        model_name: Optional[str] = "gemini-3.8-flash",
+        model_name: Optional[str] = "gemini-3.5-flash",
         api_key: Optional[str] = None,
         **kwargs
     ) -> str:
-        """Route text queries across providers with strict 6s timeout and fallback."""
+        """Route text queries across providers with 12s timeout and fallback."""
         canonical = cls._canonical_provider(provider)
 
         try:
             if canonical == "gemini":
                 return _execute_with_timeout(
                     _query_gemini,
-                    6.0,
+                    12.0,
                     prompt=prompt,
-                    model_name=model_name or "gemini-3.8-flash",
+                    model_name=model_name or "gemini-2.5-flash",
                     api_key=api_key,
                     image_data=None
                 )
             elif canonical == "openai":
                 return _execute_with_timeout(
                     _query_openai,
-                    6.0,
+                    12.0,
                     prompt=prompt,
                     model_name=model_name or "gpt-4o-mini",
                     api_key=api_key,
@@ -1339,11 +1402,13 @@ class LLMRouter:
             else:
                 return _query_offline(prompt=prompt, image_data=None)
         except Exception as exc:
+            print(f"[LLM ROUTER ERROR] Provider '{provider}' failed with exception: {type(exc).__name__}: {exc}", flush=True)
+            logger.error(f"[LLM ROUTER ERROR] Provider '{provider}' failed with exception: {exc}", exc_info=True)
             LAST_TELEMETRY["active_provider"] = "Offline Heuristics"
             if isinstance(exc, (TimeoutError, concurrent.futures.TimeoutError)):
-                LAST_TELEMETRY["failover_badge"] = f"Primary Timeout (>6.0s on {provider}) -> Fallback: Offline Heuristics"
+                LAST_TELEMETRY["failover_badge"] = f"Primary Timeout (>12.0s on {provider}) -> Fallback: Offline Heuristics"
             else:
-                LAST_TELEMETRY["failover_badge"] = f"Primary Failed ({provider}) -> Fallback: Offline Heuristics"
+                LAST_TELEMETRY["failover_badge"] = f"Primary Failed ({provider}: {type(exc).__name__}) -> Fallback: Offline Heuristics"
             return _query_offline(prompt=prompt, image_data=None)
 
     @classmethod
@@ -1436,11 +1501,11 @@ class LLMRouter:
             )
             return cls._clean_artifact_markdown(raw_res)
 
-        target_model = "gemini-3.8-flash" if canonical == "gemini" else kwargs.get("model_name")
+        target_model = "gemini-3.5-flash" if canonical == "gemini" else kwargs.get("model_name")
         try:
             raw_res = _execute_with_timeout(
                 query_llm,
-                6.0,
+                15.0,
                 prompt=full_prompt,
                 model_provider=preferred_provider,
                 model_name=target_model,
@@ -1531,7 +1596,7 @@ def analyze_image(
     image_data: Any,
     prompt: str = "Analyze this image and extract all key data points and visual metrics.",
     provider: str = "Google Gemini",
-    model_name: Optional[str] = "gemini-3.8-flash",
+    model_name: Optional[str] = "gemini-3.5-flash",
     api_key: Optional[str] = None,
     **kwargs
 ) -> str:
@@ -1549,7 +1614,7 @@ def analyze_image(
 def query_llm(
     prompt: str,
     model_provider: str = "Google Gemini",
-    model_name: Optional[str] = "gemini-3.8-flash",
+    model_name: Optional[str] = "gemini-3.5-flash",
     api_key: Optional[str] = None,
     image_data: Optional[Any] = None,
     **kwargs
@@ -1584,6 +1649,8 @@ def query_llm(
                 **kwargs
             )
     except Exception as exc:
+        print(f"[QUERY_LLM ERROR] Routing failed for provider '{canonical_primary}': {type(exc).__name__}: {exc}", flush=True)
+        logger.error(f"[QUERY_LLM ERROR] Routing failed for provider '{canonical_primary}': {exc}", exc_info=True)
         LAST_TELEMETRY["active_provider"] = "Offline Heuristics"
         LAST_TELEMETRY["failover_badge"] = f"Primary Failed ({canonical_primary} Exception) -> Fallback: Offline Heuristics"
         fallback_res = _query_offline(prompt=prompt, image_data=image_data)
