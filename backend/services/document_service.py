@@ -47,7 +47,7 @@ class DocumentService:
         if not text or not text.strip():
             raise ValueError("Document body text is required for summarization.")
 
-        valid_types = {"executive", "key_takeaways", "deep_dive"}
+        valid_types = {"executive", "key_takeaways", "action_items", "action_items_and_risks", "deep_dive"}
         effective_type = summary_type if summary_type in valid_types else "executive"
 
         try:
@@ -74,11 +74,12 @@ class DocumentService:
         cls,
         text: str,
         question: str,
+        chat_history: Optional[list] = None,
         provider: str = "Google Gemini",
         model_name: Optional[str] = None,
         api_key: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Orchestrate contextual Ask-the-Document Q&A."""
+        """Orchestrate contextual Ask-the-Document Q&A with multi-turn chat history."""
         if not text or not text.strip():
             raise ValueError("Document text context is required for Q&A.")
         if not question or not question.strip():
@@ -88,6 +89,7 @@ class DocumentService:
             result = ask_document_question(
                 doc_text=text.strip(),
                 question=question.strip(),
+                chat_history=chat_history or [],
                 model_provider=provider,
                 model_name=model_name,
                 api_key=api_key,

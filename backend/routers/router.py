@@ -5,6 +5,7 @@ Thin HTTP controller delegating to ChatService.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from starlette.concurrency import run_in_threadpool
 
 from backend.routers.auth import get_current_session, require_admin
 from backend.schemas.router import (
@@ -39,7 +40,8 @@ async def execute_query(
 ):
     """Delegates prompt execution across providers to ChatService."""
     try:
-        data = ChatService.execute_query(
+        data = await run_in_threadpool(
+            ChatService.execute_query,
             prompt=req.prompt,
             provider=req.provider,
             model_name=req.model_name,

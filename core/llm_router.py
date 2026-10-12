@@ -725,7 +725,7 @@ QUERY_OPEN_RE = re.compile(r"<\s*user_query(?:\s+[^>]*|\s*)/?>", re.IGNORECASE)
 QUERY_CLOSE_RE = re.compile(r"<\s*/\s*user_query(?:\s+[^>]*|\s*)>", re.IGNORECASE)
 
 ALL_BOUNDARY_TAGS_RE = re.compile(
-    r"<\s*/?\s*(?:untrusted_document_context|user_query)(?:\s+[^>]*|\s*)/?>",
+    r"<\s*/?\s*(?:untrusted_document_context|user_query|conversation_history)(?:\s+[^>]*|\s*)/?>",
     re.IGNORECASE
 )
 

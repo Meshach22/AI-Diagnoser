@@ -18,6 +18,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 from core.llm_router import query_llm
+from core.prompt_policy import build_data_insights_prompt
 
 # ---------------------------------------------------------------------------
 # Red Accent & Neutral SaaS Design System Color Tokens for Plotly
@@ -430,7 +431,7 @@ def generate_data_insights(
     df: pd.DataFrame,
     user_query: Optional[str] = None,
     model_provider: str = "Google Gemini",
-    model_name: str = "gemini-3.8-flash",
+    model_name: str = "gemini-3.5-flash",
     api_key: Optional[str] = None,
     **kwargs
 ) -> str:
@@ -463,23 +464,7 @@ def generate_data_insights(
         f"{corr_summary}"
     )
 
-    if user_query and user_query.strip():
-        prompt = (
-            f"You are an expert data scientist and quantitative analyst. "
-            f"Answer the following user query based on the dataset summary provided below.\n\n"
-            f"{base_context}\n\n"
-            f"User Query: {user_query.strip()}"
-        )
-    else:
-        prompt = (
-            f"You are an expert data scientist and quantitative analyst. "
-            f"Conduct an automated Exploratory Data Analysis (EDA) on the dataset summary provided below. "
-            f"Format your response in Markdown with:\n"
-            f"### 📈 Key Statistical Patterns & Distributions\n"
-            f"### ⚠️ Data Quality & Missingness Observations\n"
-            f"### 💡 Strategic Takeaways & Predictive Hypotheses\n\n"
-            f"{base_context}"
-        )
+    prompt = build_data_insights_prompt(base_context=base_context, user_query=user_query)
 
     return query_llm(
         prompt=prompt,

@@ -25,6 +25,7 @@ from core.llm_router import (
     encode_image_to_base64,
     _prepare_pil_image
 )
+from core.prompt_policy import build_image_prompt
 
 SUPPORTED_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff"]
 SUPPORTED_IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp", "image/bmp", "image/tiff"]
@@ -254,37 +255,10 @@ def extract_dominant_colors(
 # 4. LLM Router Interface for Visual OCR & Analysis
 # ---------------------------------------------------------------------------
 PRESET_PROMPTS = {
-    "ocr": (
-        "Please perform high-accuracy Optical Character Recognition (OCR) on this image. "
-        "Extract and transcribe all visible text, numbers, headers, and tables exactly as they appear. "
-        "Preserve tabular formatting using Markdown tables where applicable. "
-        "If there are handwritten notes, stamps, or labels, transcribe them clearly under an 'Annotations' section."
-    ),
-    "describe": (
-        "Provide a comprehensive, professional visual description of this image. "
-        "Analyze:\n"
-        "1. Overall subject matter and core composition\n"
-        "2. Key visual elements, objects, and people\n"
-        "3. Aesthetic details (colors, lighting, style, textures)\n"
-        "4. Context, setting, and potential intent or message."
-    ),
-    "document_audit": (
-        "Analyze this document/receipt/invoice image as an intelligent document auditor. "
-        "Extract:\n"
-        "- Document Type (Invoice, Receipt, Contract, Medical Note, etc.)\n"
-        "- Issuer / Vendor Name\n"
-        "- Date(s) & Reference Numbers\n"
-        "- Line Items or Key Statements\n"
-        "- Financial Totals, Taxes, or Grand Balances (if applicable)\n"
-        "- Potential Anomalies, Discrepancies, or Missing Information."
-    ),
-    "chart_diagram": (
-        "You are a multimodal visual intelligence specialist. Analyze the attached chart, diagram, or UI graphic.\n\n"
-        "Provide your output in three distinct sections:\n"
-        "1. **Visual Classification**: Type of graphic (bar chart, flowchart, architecture diagram, scan artifact, etc.).\n"
-        "2. **Key Data Points & Trends**: Exact values, axis labels, legends, directional trends, and anomalies.\n"
-        "3. **Executive Summary**: 2-3 bullet points synthesizing what the visual represents and key takeaways."
-    )
+    "ocr": build_image_prompt("ocr"),
+    "describe": build_image_prompt("describe"),
+    "document_audit": build_image_prompt("document_audit"),
+    "chart_diagram": build_image_prompt("chart_diagram"),
 }
 
 
@@ -315,7 +289,7 @@ def analyze_image_with_llm(
     task_type: str = "ocr",
     custom_prompt: Optional[str] = None,
     model_provider: str = "Google Gemini",
-    model_name: str = "gemini-2.5-flash",
+    model_name: str = "gemini-3.5-flash",
     api_key: Optional[str] = None,
     return_tuple: bool = False,
     **kwargs

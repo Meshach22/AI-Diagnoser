@@ -20,6 +20,7 @@ import requests
 
 from backend.config import settings
 from core.llm_router import query_llm, get_last_telemetry
+from core.prompt_policy import build_document_summary_prompt
 
 logger = logging.getLogger("n8n_service")
 
@@ -78,10 +79,7 @@ class N8nService:
 
         if event == "document.diagnose":
             doc_text = content or "Sample document content."
-            prompt = (
-                f"You are an expert executive document analyst. Review this document content and provide an executive summary and key findings:\n\n"
-                f"{doc_text[:4000]}"
-            )
+            prompt = build_document_summary_prompt(doc_text[:4000], summary_type="executive")
             diagnosis = query_llm(prompt=prompt, model_provider=provider)
             summary = f"Processed document ({len(doc_text)} characters) via {provider}."
 
@@ -372,13 +370,13 @@ class N8nService:
 
         if target_service == "data":
             # Run data audit
-            prompt = "Conduct a routine automated data health card diagnostic audit. Report on expected null rates and duplicate thresholds."
+            prompt = "Conduct an analytical data health diagnostic. Report on key distributions, null rates, duplicate rows, and actionable hygiene recommendations:"
             diagnosis = query_llm(prompt=prompt, model_provider=provider)
         elif target_service == "documents":
-            prompt = "Conduct scheduled executive synthesis for corporate intelligence briefings. Detail action items and compliance checkpoints."
+            prompt = "Provide an executive document synthesis. Summarize primary findings, material quantitative metrics, and direct next steps:"
             diagnosis = query_llm(prompt=prompt, model_provider=provider)
         else:
-            prompt = "Conduct scheduled computer vision audit scan for image artifacts, OCR text fidelity, and color gamut balance."
+            prompt = "Conduct a visual quality assessment. Report on image clarity, text legibility, layout structure, and notable visual patterns:"
             diagnosis = query_llm(prompt=prompt, model_provider=provider)
 
         job["last_run"] = now_str

@@ -404,11 +404,19 @@ class ApiClient {
   public async askDocument(
     text: string,
     question: string,
-    provider: string = 'Google Gemini'
+    provider: string = 'Google Gemini',
+    chatHistory: Array<{ role: string; content: string }> = []
   ): Promise<string> {
     const data = await this.request<{ result: string }>('/api/v1/documents/ask', {
       method: 'POST',
-      body: JSON.stringify({ text, question, provider }),
+      body: JSON.stringify({
+        text,
+        question,
+        query: question,
+        provider,
+        chat_history: chatHistory,
+        history: chatHistory,
+      }),
     });
     return data.result;
   }

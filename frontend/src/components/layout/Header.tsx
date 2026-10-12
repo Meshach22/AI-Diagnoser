@@ -15,9 +15,11 @@ export const Header: React.FC = () => {
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const [isWaking, setIsWaking] = useState<boolean>(false);
 
-  // Probe backend health periodically (20s interval to avoid excessive traffic)
+  // Probe backend health periodically (adaptive: 6s when waking/connecting, 20s when online)
   useEffect(() => {
     let mounted = true;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+
     const probe = async () => {
       const res = await api.checkHealth();
       if (!mounted) return;
@@ -29,13 +31,14 @@ export const Header: React.FC = () => {
       } else {
         setLatency(null);
       }
+      const nextDelay = res.ok ? 20000 : (res.isWaking ? 6000 : 15000);
+      timerId = setTimeout(probe, nextDelay);
     };
 
     probe();
-    const interval = setInterval(probe, 20000);
     return () => {
       mounted = false;
-      clearInterval(interval);
+      if (timerId) clearTimeout(timerId);
     };
   }, []);
 

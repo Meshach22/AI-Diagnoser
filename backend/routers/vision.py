@@ -5,6 +5,7 @@ Thin HTTP controller delegating to VisionService.
 """
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 
 from backend.config import settings
 from backend.routers.auth import get_current_session
@@ -29,7 +30,7 @@ async def get_image_metadata(
     try:
         content = await read_bounded_file(file, max_bytes=settings.MAX_UPLOAD_SIZE_BYTES)
         filename = sanitize_filename(file.filename, default_name="image.png")
-        meta = VisionService.extract_metadata(content, filename)
+        meta = await run_in_threadpool(VisionService.extract_metadata, content, filename)
         return ImageMetadataResponse(**meta)
     except HTTPException:
         raise
@@ -66,7 +67,8 @@ async def analyze_image(
         )
 
     try:
-        data = VisionService.analyze_image(
+        data = await run_in_threadpool(
+            VisionService.analyze_image,
             image_base64=req.image_base64,
             task_type=req.task_type,
             custom_prompt=req.custom_prompt,

@@ -5,14 +5,15 @@ Thin HTTP controller delegating to DataService.
 """
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 
 from backend.config import settings
 from backend.routers.auth import get_current_session
 from backend.schemas.data import (
-    CorrelationResponse,
     DataHealthCardResponse,
     DataInsightsRequest,
     DataInsightsResponse,
+    CorrelationResponse,
 )
 from backend.services.auth_service import SessionInfo
 from backend.services.data_service import DataService
@@ -30,7 +31,7 @@ async def profile_dataset(
     try:
         content = await read_bounded_file(file, max_bytes=settings.MAX_UPLOAD_SIZE_BYTES)
         filename = sanitize_filename(file.filename, default_name="data.csv")
-        health = DataService.profile_data(content, filename)
+        health = await run_in_threadpool(DataService.profile_data, content, filename)
         return DataHealthCardResponse(**health)
     except HTTPException:
         raise
@@ -59,7 +60,8 @@ async def get_data_insights(
         )
 
     try:
-        data = DataService.generate_insights(
+        data = await run_in_threadpool(
+            DataService.generate_insights,
             dataset_csv=req.dataset_csv,
             user_query=req.user_query,
             provider=req.provider or "Google Gemini",
@@ -88,7 +90,7 @@ async def get_correlation_matrix(
     try:
         content = await read_bounded_file(file, max_bytes=settings.MAX_UPLOAD_SIZE_BYTES)
         filename = sanitize_filename(file.filename, default_name="data.csv")
-        result = DataService.compute_correlation(content, filename)
+        result = await run_in_threadpool(DataService.compute_correlation, content, filename)
         return CorrelationResponse(**result)
     except HTTPException:
         raise

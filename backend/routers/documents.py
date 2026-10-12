@@ -5,6 +5,7 @@ Thin HTTP controller delegating to DocumentService.
 """
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 
 from backend.config import settings
 from backend.routers.auth import get_current_session
@@ -31,7 +32,7 @@ async def upload_document(
     try:
         content = await read_bounded_file(file, max_bytes=settings.MAX_UPLOAD_SIZE_BYTES)
         filename = sanitize_filename(file.filename, default_name="document.txt")
-        doc_data = DocumentService.ingest_document(content, filename)
+        doc_data = await run_in_threadpool(DocumentService.ingest_document, content, filename)
         return DocumentIngestResponse(**doc_data)
     except HTTPException:
         raise
@@ -54,7 +55,8 @@ async def summarize_document(
 ):
     """Delegates executive document summarization to DocumentService."""
     try:
-        data = DocumentService.summarize_document(
+        data = await run_in_threadpool(
+            DocumentService.summarize_document,
             text=req.text,
             summary_type=req.summary_type,
             provider=req.provider or "Google Gemini",
@@ -75,15 +77,18 @@ async def summarize_document(
 
 
 @router.post("/ask", response_model=DocumentAnalysisResponse, summary="Ask the document contextual questions")
+@router.post("/qa", response_model=DocumentAnalysisResponse, summary="Ask the document contextual questions (alias)")
 async def ask_document(
     req: DocumentAskRequest,
     session: SessionInfo = Depends(get_current_session),
 ):
     """Delegates Ask-the-Document Q&A query to DocumentService."""
     try:
-        data = DocumentService.ask_question(
+        data = await run_in_threadpool(
+            DocumentService.ask_question,
             text=req.text,
             question=req.question,
+            chat_history=req.chat_history or [],
             provider=req.provider or "Google Gemini",
             model_name=req.model_name,
             api_key=req.api_key,

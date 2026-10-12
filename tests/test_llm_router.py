@@ -34,6 +34,12 @@ class TestLLMRouterFailoverSuite(unittest.TestCase):
         LAST_TELEMETRY["primary_provider"] = "Offline Heuristics"
         LAST_TELEMETRY["latency_ms"] = 0.0
         LAST_TELEMETRY["failover_badge"] = None
+        from core.llm_router import _CLIENT_CACHE
+        _CLIENT_CACHE.clear()
+
+    def tearDown(self):
+        from core.llm_router import _CLIENT_CACHE
+        _CLIENT_CACHE.clear()
 
     @patch("openai.OpenAI")
     @patch("core.llm_router._query_groq")

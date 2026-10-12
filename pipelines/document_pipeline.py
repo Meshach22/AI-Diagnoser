@@ -189,6 +189,8 @@ SUMMARY_PROMPTS = {
     "executive": SUMMARY_PROMPT_TEMPLATE,
     "json_schema": STRUCTURED_JSON_EXTRACTION_PROMPT,
     "key_takeaways": build_document_summary_prompt("{document_text}", summary_type="key_takeaways"),
+    "action_items": build_document_summary_prompt("{document_text}", summary_type="action_items"),
+    "action_items_and_risks": build_document_summary_prompt("{document_text}", summary_type="action_items"),
     "deep_dive": build_document_summary_prompt("{document_text}", summary_type="deep_dive"),
 }
 
@@ -213,14 +215,17 @@ def generate_document_summary(
 
     escaped_text = escape_boundary_tags(truncated_text)
 
-    if summary_type == "executive" or summary_type not in SUMMARY_PROMPTS:
-        final_prompt = SUMMARY_PROMPT_TEMPLATE.format(document_text=escaped_text)
-    else:
+    if summary_type == "json_schema":
+        template = STRUCTURED_JSON_EXTRACTION_PROMPT
+    elif summary_type in SUMMARY_PROMPTS:
         template = SUMMARY_PROMPTS[summary_type]
-        if "{document_text}" in template:
-            final_prompt = template.format(document_text=escaped_text)
-        else:
-            final_prompt = f"{template}\n\n{escaped_text}"
+    else:
+        template = build_document_summary_prompt("{document_text}", summary_type=summary_type)
+
+    if "{document_text}" in template:
+        final_prompt = template.format(document_text=escaped_text)
+    else:
+        final_prompt = f"{template}\n\n{escaped_text}"
 
     return query_llm(
         prompt=final_prompt,
@@ -237,12 +242,13 @@ def generate_document_summary(
 def ask_document_question(
     doc_text: str,
     question: str,
+    chat_history: Optional[List[Dict[str, Any]]] = None,
     model_provider: str = "Google Gemini",
     model_name: str = "gemini-3.8-flash",
     api_key: Optional[str] = None,
     **kwargs
 ) -> str:
-    """Query the document text to answer a specific user question using QA_PROMPT_TEMPLATE."""
+    """Query the document text to answer a specific user question using NotebookLM conversational grounding."""
     if not question.strip():
         return "Please enter a valid question."
 
@@ -253,9 +259,10 @@ def ask_document_question(
     escaped_doc = escape_boundary_tags(truncated_text)
     escaped_query = escape_boundary_tags(question.strip())
 
-    prompt = QA_PROMPT_TEMPLATE.format(
+    prompt = build_document_qa_prompt(
         document_text=escaped_doc,
-        user_query=escaped_query
+        user_query=escaped_query,
+        chat_history=chat_history or []
     )
 
     return query_llm(
