@@ -38,11 +38,56 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Session-Token",
+        "X-Request-ID",
+        "X-N8N-Webhook-Secret",
+        "Accept",
+        "Origin",
+        "*",
+    ],
+    expose_headers=["X-Request-ID"],
 )
 
+
+import logging
+import uuid
+import time
+from fastapi import Request
+
+logger = logging.getLogger("backend.access")
+
+# Correlation ID and Structured Access Logging Middleware
+@app.middleware("http")
+async def structured_access_logging(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    start_time = time.perf_counter()
+
+    try:
+        response = await call_next(request)
+        latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
+        response.headers["X-Request-ID"] = request_id
+
+        # Log completion without exposing credentials, payloads, or secrets
+        log_level = logging.WARNING if response.status_code >= 400 else logging.INFO
+        logger.log(
+            log_level,
+            f"request_id={request_id} method={request.method} path={request.url.path} "
+            f"status={response.status_code} latency_ms={latency_ms}"
+        )
+        return response
+    except Exception as exc:
+        latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
+        logger.error(
+            f"request_id={request_id} method={request.method} path={request.url.path} "
+            f"status=500 latency_ms={latency_ms} error={type(exc).__name__}: {str(exc)}"
+        )
+        raise
 
 # Security Headers Middleware (SEC-006: Hardening response headers)
 @app.middleware("http")
@@ -105,8 +150,9 @@ async def root():
 
 
 @app.get("/health", summary="Service Health Check")
+@app.get("/api/v1/health", summary="API v1 Service Health Check")
 async def health():
-    """Health check endpoint used by Docker, Nginx, and Streamlit Frontend."""
+    """Health check endpoint used by Docker, Nginx, Vercel frontend, and external uptime monitors."""
     return {
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc).isoformat(),

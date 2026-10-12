@@ -11,7 +11,7 @@ Provides endpoints for:
 import secrets
 import time
 from typing import Optional
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from backend.config import settings
@@ -35,15 +35,25 @@ security = HTTPBearer(auto_error=False)
 
 
 def extract_token(
+    request: Request,
     auth_header: Optional[HTTPAuthorizationCredentials] = Depends(security),
     x_session_token: Optional[str] = Header(None, alias="X-Session-Token"),
     x_n8n_secret: Optional[str] = Header(None, alias="X-N8N-Webhook-Secret"),
 ) -> Optional[str]:
-    """Extract session token from Bearer Authorization, X-Session-Token, or X-N8N-Webhook-Secret header."""
+    """Extract session token from Bearer Authorization, X-Session-Token, HttpOnly cookie, or X-N8N-Webhook-Secret."""
     if auth_header and auth_header.credentials:
         return auth_header.credentials
+    # Fallback to direct Authorization header in case proxy altered header casing or format
+    raw_auth = request.headers.get("Authorization") or request.headers.get("authorization")
+    if raw_auth and raw_auth.strip().lower().startswith("bearer "):
+        token_val = raw_auth.strip()[7:].strip()
+        if token_val:
+            return token_val
     if x_session_token:
         return x_session_token
+    cookie_token = request.cookies.get(settings.AUTH_COOKIE_NAME)
+    if cookie_token:
+        return cookie_token
     if x_n8n_secret:
         return x_n8n_secret
     return None
@@ -132,11 +142,21 @@ async def get_auth_status(auth_service: AuthService = Depends(get_auth_service))
 @router.post("/login", response_model=LoginResponse, summary="Sign in with email and password")
 async def login(
     req: LoginRequest,
+    response: Response,
     auth_service: AuthService = Depends(get_auth_service),
 ):
-    """Authenticate user credentials and issue a new secure session token."""
+    """Authenticate user credentials, issue a secure session token, and set HttpOnly cookie."""
     try:
         token, info = auth_service.authenticate(req.email, req.password)
+        response.set_cookie(
+            key=settings.AUTH_COOKIE_NAME,
+            value=token,
+            max_age=settings.AUTH_SESSION_TTL_MINUTES * 60,
+            httponly=True,
+            secure=settings.AUTH_COOKIE_SECURE,
+            samesite=settings.AUTH_COOKIE_SAMESITE,
+            domain=settings.AUTH_COOKIE_DOMAIN,
+        )
         return LoginResponse(
             token=token,
             user=UserPublic(
@@ -156,9 +176,10 @@ async def login(
 @router.post("/register", response_model=LoginResponse, summary="Create a new user account")
 async def register(
     req: RegisterRequest,
+    response: Response,
     auth_service: AuthService = Depends(get_auth_service),
 ):
-    """Register a new user account (strictly non-admin) and automatically sign in."""
+    """Register a new user account (strictly non-admin) and automatically sign in with cookie."""
     users = auth_service.list_users()
     if not settings.AUTH_ALLOW_SIGNUP and len(users) > 0:
         raise HTTPException(
@@ -169,6 +190,15 @@ async def register(
         # Crucial security guarantee: self-service registration CANNOT grant administrative privileges
         user_dict = auth_service.create_user(req.email, req.name, req.password, role="user", is_admin=False)
         token, info = auth_service.authenticate(req.email, req.password)
+        response.set_cookie(
+            key=settings.AUTH_COOKIE_NAME,
+            value=token,
+            max_age=settings.AUTH_SESSION_TTL_MINUTES * 60,
+            httponly=True,
+            secure=settings.AUTH_COOKIE_SECURE,
+            samesite=settings.AUTH_COOKIE_SAMESITE,
+            domain=settings.AUTH_COOKIE_DOMAIN,
+        )
         return LoginResponse(
             token=token,
             user=UserPublic(
@@ -202,10 +232,18 @@ async def get_me(session: SessionInfo = Depends(get_current_session)):
 
 @router.post("/logout", summary="Sign out and revoke active session")
 async def logout(
+    response: Response,
     token: Optional[str] = Depends(extract_token),
     auth_service: AuthService = Depends(get_auth_service),
 ):
-    """Revoke and invalidate the active session token."""
+    """Revoke and invalidate the active session token and clear session cookie."""
     if token:
         auth_service.revoke_session(token)
+    response.delete_cookie(
+        key=settings.AUTH_COOKIE_NAME,
+        domain=settings.AUTH_COOKIE_DOMAIN,
+        httponly=True,
+        secure=settings.AUTH_COOKIE_SECURE,
+        samesite=settings.AUTH_COOKIE_SAMESITE,
+    )
     return {"status": "success", "message": "Signed out successfully."}

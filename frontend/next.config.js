@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const isProd = process.env.NODE_ENV === 'production';
-const backendUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL;
+const backendUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL;
 
 if (isProd && !backendUrl) {
   console.warn(

@@ -118,9 +118,14 @@ export interface ScheduledJob {
 }
 
 // Configurable Base URL (defaults to Next.js API rewrite or direct backend)
-const API_BASE = process.env.NEXT_PUBLIC_API_URL 
-  ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')
-  : '';
+const getApiBase = (): string => {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL;
+  if (envUrl && typeof envUrl === 'string') {
+    return envUrl.trim().replace(/\/$/, '');
+  }
+  return '';
+};
+const API_BASE = getApiBase();
 
 class ApiClient {
   private token: string | null = null;
@@ -143,8 +148,12 @@ class ApiClient {
   }
 
   public getToken(): string | null {
-    if (!this.token && typeof window !== 'undefined') {
-      this.token = localStorage.getItem('ai_diagnoser_token');
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('ai_diagnoser_token');
+      if (stored) {
+        this.token = stored;
+        return stored;
+      }
     }
     return this.token;
   }
@@ -183,6 +192,7 @@ class ApiClient {
 
     try {
       const res = await fetch(url, {
+        credentials: options.credentials || 'include',
         ...options,
         headers,
         signal: controller.signal,
@@ -207,7 +217,14 @@ class ApiClient {
     } catch (err: any) {
       if (err.name === 'AbortError' || controller.signal.aborted) {
         throw new Error(
-          `Request timed out after ${Math.round(timeoutMs / 1000)}s. The server may be waking from sleep or experiencing high load. Please try again.`
+          `Request timed out after ${Math.round(timeoutMs / 1000)}s. The backend server may be waking up from sleep or experiencing high load. Please try again in a few moments.`
+        );
+      }
+      if (err.message === 'Failed to fetch' || (err instanceof TypeError && String(err.message).toLowerCase().includes('fetch'))) {
+        throw new Error(
+          'Unable to communicate with the AI-Diagnoser backend service (Failed to fetch). ' +
+          'The server may be waking up from cold start (Render free tier), or network connectivity was interrupted. ' +
+          'Please verify your connection and retry in a few moments.'
         );
       }
       throw err;
@@ -230,12 +247,13 @@ class ApiClient {
     // In production without NEXT_PUBLIC_API_URL, route to relative /health which Next.js rewrites to the backend
     const healthUrl = API_BASE ? `${API_BASE}/health` : '/health';
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s health check budget
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s health check budget
 
     try {
       const res = await fetch(healthUrl, {
         method: 'GET',
         cache: 'no-store',
+        credentials: 'include',
         signal: controller.signal,
       });
       const latencyMs = Math.round(performance.now() - start);
@@ -243,16 +261,22 @@ class ApiClient {
         const data = await res.json();
         return { ok: true, status: { ...data, latencyMs }, latencyMs, isWaking: false };
       }
-      const isWaking = [502, 503, 504].includes(res.status);
-      return { ok: false, latencyMs, isWaking, error: `HTTP ${res.status}` };
+      // Expand waking status codes to include Cloudflare and gateway cold-start codes
+      const isWaking = [502, 503, 504, 520, 521, 522, 523, 524].includes(res.status);
+      return {
+        ok: false,
+        latencyMs,
+        isWaking,
+        error: isWaking ? 'Server waking up (cold start)...' : `HTTP ${res.status}`,
+      };
     } catch (err: any) {
       const latencyMs = Math.round(performance.now() - start);
       const isTimeout = err.name === 'AbortError' || controller.signal.aborted;
       return {
         ok: false,
         latencyMs,
-        isWaking: isTimeout,
-        error: isTimeout ? 'Service waking up (Render free tier)' : (err.message || 'Offline'),
+        isWaking: true, // Network failure or timeout during health check indicates server is starting/waking
+        error: isTimeout ? 'Service waking up (Render cold start)...' : 'Connecting to backend...',
       };
     } finally {
       clearTimeout(timeoutId);

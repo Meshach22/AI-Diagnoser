@@ -28,15 +28,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const initAuth = async () => {
       const storedToken = api.getToken();
       if (storedToken) {
+        api.setToken(storedToken);
         setTokenState(storedToken);
+      }
+
+      // Check active session via token or cookie
+      if (storedToken || typeof window !== 'undefined') {
         try {
           const userData = await api.getMe();
           setUser(userData);
-        } catch (err) {
-          console.debug('Session invalid or expired:', err);
-          api.setToken(null);
-          setTokenState(null);
-          setUser(null);
+        } catch (err: any) {
+          const msg = String(err?.message || '').toLowerCase();
+          const isExplicitAuthFailure =
+            msg.includes('401') ||
+            msg.includes('authentication required') ||
+            msg.includes('session expired') ||
+            msg.includes('invalid token') ||
+            msg.includes('unauthorized');
+
+          if (isExplicitAuthFailure) {
+            // Only clear token if we actually had a stored token that was rejected
+            if (storedToken) {
+              console.debug('Session expired or invalid, clearing local credentials.');
+              api.setToken(null);
+              setTokenState(null);
+            }
+            setUser(null);
+          } else {
+            // Transient network error or backend cold start: retain token so session survives
+            console.info('Preserving authentication token during transient backend availability:', err?.message);
+          }
         }
       }
       setLoading(false);

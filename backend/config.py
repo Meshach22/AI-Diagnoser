@@ -7,7 +7,7 @@ Handles environment variables, default providers, CORS origins, and n8n webhook 
 import json
 import os
 from typing import Any, List, Optional, Union
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -31,12 +31,15 @@ class BackendSettings(BaseSettings):
         "http://localhost",
         "http://127.0.0.1",
         "https://localhost",
+        "https://ai-diagnoser-ig8r.vercel.app",
+        "https://ai-diagnoser.vercel.app",
     ]
 
     @field_validator("CORS_ORIGINS", mode="after")
     @classmethod
     def assemble_cors_origins(cls, v: Any) -> List[str]:
-        """Parse list, JSON string, or comma-separated environment variables cleanly."""
+        """Parse list, JSON string, or comma-separated environment variables cleanly, stripping trailing slashes."""
+        origins: List[str] = []
         if isinstance(v, str):
             v = v.strip()
             if not v:
@@ -45,17 +48,36 @@ class BackendSettings(BaseSettings):
                 try:
                     parsed = json.loads(v)
                     if isinstance(parsed, list):
-                        return [str(item).strip() for item in parsed if str(item).strip()]
+                        origins = [str(item).strip() for item in parsed if str(item).strip()]
                 except Exception:
                     pass
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
-        if isinstance(v, (list, tuple, set)):
-            return [str(item).strip() for item in v if str(item).strip()]
-        return [str(v)]
+            if not origins:
+                origins = [origin.strip() for origin in v.split(",") if origin.strip()]
+        elif isinstance(v, (list, tuple, set)):
+            origins = [str(item).strip() for item in v if str(item).strip()]
+        else:
+            origins = [str(v).strip()]
+
+        # Also include any dynamically configured FRONTEND_URL or VERCEL_URL from environment
+        env_frontend = os.getenv("FRONTEND_URL") or os.getenv("VERCEL_URL")
+        if env_frontend:
+            for item in env_frontend.split(","):
+                cand = item.strip()
+                if cand:
+                    if not cand.startswith("http"):
+                        cand = f"https://{cand}"
+                    origins.append(cand)
+
+        cleaned: List[str] = []
+        for o in origins:
+            clean = o.rstrip("/")
+            if clean and clean not in cleaned:
+                cleaned.append(clean)
+        return cleaned
 
     # LLM Router Defaults (Gemini, OpenAI, Groq)
     DEFAULT_PROVIDER: str = "Google Gemini"
-    DEFAULT_MODEL_GEMINI: str = "gemini-3.8-flash"
+    DEFAULT_MODEL_GEMINI: str = "gemini-3.5-flash"
     DEFAULT_MODEL_OPENAI: str = "gpt-4o-mini"
     DEFAULT_MODEL_GROQ: str = "llama-3.3-70b-versatile"
 
@@ -73,17 +95,47 @@ class BackendSettings(BaseSettings):
     SLACK_INCOMING_WEBHOOK: Optional[str] = os.getenv("SLACK_INCOMING_WEBHOOK")
     N8N_WEBHOOK_SECRET: Optional[str] = os.getenv("N8N_WEBHOOK_SECRET")
 
-    # Authentication (no credentials are defined here; users are created via
-    # `python -m backend.auth_cli create-user` or optional self-service signup)
-    AUTH_DB_PATH: str = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "auth.db"
-    )
+    # Authentication & Persistence
+    # Supports AUTH_DB_PATH, DATA_DIR, or DATABASE_URL (e.g. sqlite:////var/data/auth.db for Render Persistent Disk)
+    DATABASE_URL: Optional[str] = None
+    DATA_DIR: Optional[str] = None
+    AUTH_DB_PATH: str = ""
+
+    @model_validator(mode="after")
+    def resolve_auth_db_path(self) -> "BackendSettings":
+        env_auth_path = os.getenv("AUTH_DB_PATH")
+        if self.AUTH_DB_PATH:
+            return self
+        if env_auth_path:
+            self.AUTH_DB_PATH = env_auth_path
+            return self
+
+        dir_path = self.DATA_DIR or os.getenv("DATA_DIR")
+        if dir_path:
+            self.AUTH_DB_PATH = os.path.join(dir_path, "auth.db")
+            return self
+
+        db_url = self.DATABASE_URL or os.getenv("DATABASE_URL")
+        if db_url and db_url.startswith("sqlite"):
+            self.AUTH_DB_PATH = db_url.replace("sqlite:///", "").replace("sqlite://", "")
+            return self
+
+        default_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+        self.AUTH_DB_PATH = os.path.join(default_dir, "auth.db")
+        return self
+
     AUTH_SESSION_TTL_MINUTES: int = 480        # absolute session lifetime
     AUTH_SESSION_IDLE_MINUTES: int = 60        # idle timeout
     AUTH_MAX_FAILED_ATTEMPTS: int = 5          # per-account failures before lockout
     AUTH_LOCKOUT_MINUTES: int = 15             # lockout window / duration
     AUTH_ALLOW_SIGNUP: bool = False            # self-service registration (off by default)
     AUTH_ENFORCE_API: bool = True              # require a session on user-facing API routes
+
+    # Cookie settings for cross-domain / same-site browser session persistence
+    AUTH_COOKIE_NAME: str = "ai_diagnoser_session"
+    AUTH_COOKIE_SECURE: bool = True
+    AUTH_COOKIE_SAMESITE: str = "none"         # 'none' enables cross-origin credentialed requests (Vercel -> Render)
+    AUTH_COOKIE_DOMAIN: Optional[str] = None
 
     # Upload Limits (SEC-002: Bounded upload size to protect container memory)
     MAX_UPLOAD_SIZE_MB: int = 25
