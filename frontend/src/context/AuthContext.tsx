@@ -38,26 +38,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const userData = await api.getMe();
           setUser(userData);
         } catch (err: any) {
-          const msg = String(err?.message || '').toLowerCase();
-          const isExplicitAuthFailure =
-            msg.includes('401') ||
-            msg.includes('authentication required') ||
-            msg.includes('session expired') ||
-            msg.includes('invalid token') ||
-            msg.includes('unauthorized');
-
-          if (isExplicitAuthFailure) {
-            // Only clear token if we actually had a stored token that was rejected
-            if (storedToken) {
-              console.debug('Session expired or invalid, clearing local credentials.');
-              api.setToken(null);
-              setTokenState(null);
-            }
-            setUser(null);
-          } else {
-            // Transient network error or backend cold start: retain token so session survives
-            console.info('Preserving authentication token during transient backend availability:', err?.message);
-          }
+          // Never prematurely wipe stored token on page reloads or transient backend failures.
+          // Token is strictly wiped only when the user explicitly triggers logout().
+          console.warn('Initial session validation check failed; preserving token for subsequent requests:', err?.message);
+          setUser(null);
         }
       }
       setLoading(false);

@@ -106,14 +106,17 @@ def validate_name(name: str) -> str:
     return clean
 
 
+ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30  # 30 days (43,200 minutes)
+
+
 class AuthService:
     """SQLite-backed user, session and lockout store."""
 
     def __init__(
         self,
         db_path: str,
-        session_ttl_minutes: int = 480,
-        session_idle_minutes: int = 60,
+        session_ttl_minutes: int = 60 * 24 * 30,  # 30 days
+        session_idle_minutes: int = 60 * 24 * 30,  # 30 days
         max_failed_attempts: int = 5,
         lockout_minutes: int = 15,
         clock: Optional[Callable[[], float]] = None,

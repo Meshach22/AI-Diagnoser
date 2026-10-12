@@ -49,6 +49,21 @@ export const VisionWorkspace: React.FC<VisionWorkspaceProps> = ({ initialFile = 
       setBase64(b64.split(',')[1] || b64);
 
       try {
+        if (typeof window !== 'undefined') {
+          const stored = localStorage.getItem('ai_diagnoser_upload_history');
+          const list = stored ? JSON.parse(stored) : [];
+          const updated = [
+            {
+              name: selectedFile.name,
+              type: 'vision',
+              time: 'Just now',
+              size: `${(selectedFile.size / 1024).toFixed(1)} KB`,
+              status: 'Uploaded',
+            },
+            ...list.filter((x: any) => x.name !== selectedFile.name),
+          ].slice(0, 10);
+          localStorage.setItem('ai_diagnoser_upload_history', JSON.stringify(updated));
+        }
         const meta = await api.getImageMetadata(selectedFile);
         setMetadata(meta);
       } catch (err: any) {

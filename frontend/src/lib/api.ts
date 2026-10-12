@@ -168,9 +168,9 @@ class ApiClient {
       ...(options.headers as Record<string, string> || {}),
     };
 
-    const token = this.getToken();
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
+    const token = this.getToken() || (typeof window !== 'undefined' ? localStorage.getItem('ai_diagnoser_token') : null);
+    if (token && token.trim()) {
+      headers['Authorization'] = `Bearer ${token.trim()}`;
     }
 
     if (!(options.body instanceof FormData) && !headers['Content-Type']) {

@@ -43,51 +43,73 @@ SECURITY_DIRECTIVE = (
 
 
 def build_document_summary_prompt(document_text: str, summary_type: str = "executive") -> str:
-    """Construct document summarization prompt adhering to the professional writing standard."""
+    """Construct document summarization prompt using an Executive AI Analyst Agent standard."""
+    agent_instructions = (
+        "You are an Executive AI Analyst Agent conducting deep, structured document intelligence.\n\n"
+        "1. INTELLIGENT DOCUMENT DETECTION:\n"
+        "Analyze the document content to identify whether the file is a Resume/CV/Candidate Profile, "
+        "a Technical Specification/Architecture, a Financial Report/Ledger, a Research Paper, a Contract/Agreement, "
+        "or a General Business Document.\n\n"
+        "2. STRUCTURED DEEP SYNTHESIS:\n"
+        "- If the document is a RESUME / CV / PROFESSIONAL PROFILE:\n"
+        "  ### Executive Summary\n"
+        "  [Direct synthesis of professional profile, core specialization, experience level, and domain focus]\n\n"
+        "  ### Core Technical Competencies\n"
+        "  [Categorized breakdown into Programming Languages, Frameworks & Libraries, Databases & Storage, Cloud & DevOps, and Tools & Architectures]\n\n"
+        "  ### Verified Project Deliverables & Impact\n"
+        "  [Detailed breakdown of major projects, key milestones, quantitative metrics, tech stacks, and measurable results]\n\n"
+        "  ### Education & Qualifications\n"
+        "  [Exact degrees (e.g. B.Tech Artificial Intelligence & Data Science), institutions, honors, and credentials]\n\n"
+        "  ### Strategic Strengths & Alignment\n"
+        "  [Key distinguishing strengths, leadership capabilities, and role fit substantiated by the document]\n\n"
+        "- If the document is a REPORT / TECHNICAL SPEC / FINANCIAL / GENERAL DOCUMENT:\n"
+        "  ### Executive Summary\n"
+        "  [2-3 direct sentences stating the core purpose, scope, and principal conclusions]\n\n"
+        "  ### Quantitative Data Anchors & Key Metrics\n"
+        "  [Extract all critical figures, financial indicators, percentages, dates, benchmarks, and units of measure]\n\n"
+        "  ### Critical Bottlenecks & Risk Factors\n"
+        "  [Highlight vulnerabilities, constraints, operational risks, or compliance issues documented in the text]\n\n"
+        "  ### Actionable Strategic Takeaways & Next Steps\n"
+        "  [Concrete, prioritized recommendations and execution milestones explicitly supported by the text]\n\n"
+        "3. RIGOROUS ANALYTICAL STANDARDS:\n"
+        "- Act as an intelligent analyst; provide deep, structured insights rather than shallow boilerplate or single-sentence summaries.\n"
+        "- Do NOT output generic disclaimers like 'Generated via Offline Heuristics Engine' or 'No specific recommendations provided in source text'.\n"
+        "- Maintain fidelity to exact names, metrics, technologies, and dates."
+    )
+
     style_guidance = (
         "Writing guidelines:\n"
         "- Lead directly with a concise summary of the document's primary purpose and key outcome.\n"
-        "- Synthesize a concise, informative overview of the document's actual contents (such as skills, roles, milestones, or core topics).\n"
-        "- Detail the most significant findings and quantitative metrics (exact figures, dates, percentages).\n"
-        "- Highlight any concrete next steps or recommendations explicitly stated in the document.\n"
         "- Avoid meta-filler ('In this document', 'It is important to note', 'Key Insights', 'In conclusion').\n"
-        "- Use clean, concise headings and bullet points only where they improve clarity."
+        "- Act as an intelligent analyst; deliver deep, structured insights rather than shallow boilerplate or single-sentence summaries.\n"
+        "- Do NOT output generic disclaimers like 'Generated via Offline Heuristics Engine' or 'No specific recommendations provided in source text'.\n"
+        "- Maintain fidelity to exact names, metrics, technologies, and dates."
     )
 
     if summary_type == "key_takeaways":
         task_instruction = (
-            "Extract the essential takeaways and quantitative findings from the document.\n"
-            "Synthesize a concise, structured overview of actual contents (skills, roles, milestones, or core topics).\n"
+            "Extract essential takeaways, quantitative findings, and actionable steps from the document.\n"
             "Format your response with:\n"
-            "### Core Takeaways\n"
-            "[Direct bullet points with specific figures and key facts]\n\n"
-            "### Recommended Actions\n"
-            "[Concrete next steps or tasks explicitly stated in the text, if any]"
+            "### Executive Summary\n"
+            "[Direct summary of core purpose and main outcome]\n\n"
+            "### Core Takeaways & Competencies\n"
+            "[Detailed bullet points with exact figures, technologies, and key facts]\n\n"
+            "### Recommended Actions & Next Steps\n"
+            "[Concrete next steps or tasks explicitly stated in the text]"
         )
     elif summary_type == "deep_dive":
         task_instruction = (
-            "Provide a thorough, structured synthesis of the document.\n"
-            "Synthesize a detailed overview of the document's actual contents (skills, roles, milestones, or core topics).\n"
+            "Provide a thorough, comprehensive deep-dive synthesis of the document.\n"
             "Format your response with:\n"
             "### Executive Summary\n"
-            "[2-3 sentences stating the main purpose, scope, and key outcome]\n\n"
-            "### Detailed Findings by Section\n"
-            "[Specific findings, operational details, and material developments]\n\n"
+            "[Comprehensive overview of scope, objectives, and principal outcomes]\n\n"
+            "### Detailed Analysis & Architecture\n"
+            "[Specific findings, technical competencies, operational details, and deliverables]\n\n"
             "### Quantitative Evidence & Risk Factors\n"
-            "[Exact figures, financial metrics, deadlines, and noted risks]"
+            "[Exact figures, deadlines, metrics, and noted vulnerabilities]"
         )
     else:  # default 'executive'
-        task_instruction = (
-            "Provide an executive briefing on the document.\n"
-            "Synthesize a concise, informative overview of the document's actual contents (skills, roles, milestones, or core topics).\n"
-            "Format your response with:\n"
-            "### Executive Summary\n"
-            "[2-3 direct sentences stating the core message and primary result]\n\n"
-            "### Key Findings\n"
-            "[Bullet points with exact figures, dates, and quantitative anchors]\n\n"
-            "### Key Recommendations & Next Steps\n"
-            "[Specific recommendations explicitly given in the source text, if any]"
-        )
+        task_instruction = agent_instructions
 
     return (
         f"{task_instruction}\n\n"
@@ -100,19 +122,18 @@ def build_document_summary_prompt(document_text: str, summary_type: str = "execu
 
 
 def build_document_qa_prompt(document_text: str, user_query: str) -> str:
-    """Construct document Q&A prompt that leads with a direct answer and supporting evidence."""
+    """Construct document Q&A prompt that delivers direct, thorough semantic answers with evidence."""
     return (
-        "Answer the user's question directly based on the provided document text. "
-        "Infer standard semantic equivalents (e.g., recognize 'degree', 'B.Tech', or 'education' as 'qualification'). "
-        "If the answer is present, extract it clearly.\n\n"
+        "You are an Executive AI Analyst Agent answering queries regarding the provided document.\n\n"
         "Writing guidelines:\n"
         "- Answer the question directly in your opening sentence.\n"
-        "- Infer standard semantic equivalents and synonyms to connect user inquiries to relevant document terms.\n"
-        "- Provide supporting details, exact figures, and quotes from the document immediately following the answer.\n"
+        "- Semantic Understanding: Seamlessly connect implicit facts and synonyms (e.g., recognize that 'B.Tech AI & Data Science' or 'Bachelor of Technology' answers 'what is his qualification', or that 'AWS / Docker / Kubernetes' answers 'cloud infrastructure experience').\n"
+        "- Provide supporting evidence, quantitative metrics, quotes, and contextual specifics from the document immediately following the direct answer.\n"
+        "- If the user asks for a synthesis or list (e.g., projects, credentials, key findings), provide an organized, exhaustive answer.\n"
         "- If the document does not contain information to answer the question, state: "
         "'The provided document does not contain information to answer this question.' "
-        "and briefly mention what related topics are covered if relevant.\n"
-        "- Do not invent facts, speculate, or write conversational filler ('Certainly!', 'Based on the document', 'I hope this helps!').\n\n"
+        "and mention what related topics or facts are present.\n"
+        "- Never output conversational filler ('Certainly!', 'I hope this helps!'), robotic meta-announcements, or generic disclaimers.\n\n"
         f"{SECURITY_DIRECTIVE}\n\n"
         f"<untrusted_document_context>\n"
         f"{document_text}\n"

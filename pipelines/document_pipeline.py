@@ -197,7 +197,7 @@ def generate_document_summary(
     doc_text: str,
     summary_type: str = "executive",
     model_provider: str = "Google Gemini",
-    model_name: str = "gemini-2.5-flash",
+    model_name: str = "gemini-3.8-flash",
     api_key: Optional[str] = None,
     **kwargs
 ) -> str:
@@ -238,7 +238,7 @@ def ask_document_question(
     doc_text: str,
     question: str,
     model_provider: str = "Google Gemini",
-    model_name: str = "gemini-2.5-flash",
+    model_name: str = "gemini-3.8-flash",
     api_key: Optional[str] = None,
     **kwargs
 ) -> str:

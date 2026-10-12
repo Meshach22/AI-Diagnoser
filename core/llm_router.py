@@ -288,7 +288,7 @@ def _image_to_base64(image: Any, format_name: str = "JPEG") -> Tuple[str, str]:
 # ---------------------------------------------------------------------------
 def _query_gemini(
     prompt: str,
-    model_name: str = "gemini-2.5-flash",
+    model_name: str = "gemini-3.8-flash",
     api_key: Optional[str] = None,
     image_data: Optional[Any] = None
 ) -> str:
@@ -318,31 +318,35 @@ def _query_gemini(
 
     # Cache configure invocation to avoid repeatedly mutating global SDK state on every call
     if _CACHED_GEMINI_KEY != resolved_key:
-        genai.configure(api_key=resolved_key)
+        genai.configure(api_key=resolved_key, transport="rest")
         _CACHED_GEMINI_KEY = resolved_key
 
-    clean_model_name = (model_name or "gemini-2.5-flash").replace("models/", "").strip()
+    raw_model = (model_name or "gemini-3.8-flash").replace("models/", "").strip()
+    # Normalize deprecated model identifiers to active gemini-3.8-flash to prevent 404 latency loops
+    if raw_model in ("gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"):
+        clean_model_name = "gemini-3.8-flash"
+    else:
+        clean_model_name = raw_model
 
     # Build clean candidate list: requested model first, then verified working flash models
     model_candidates = []
     if clean_model_name not in _UNAVAILABLE_GEMINI_MODELS:
         model_candidates.append(clean_model_name)
     fallback_pool = [
-        "gemini-flash-lite-latest",
+        "gemini-3.8-flash",
         "gemini-flash-latest",
         "gemini-3.5-flash",
-        "gemini-2.5-flash",
-        "gemini-1.5-flash",
+        "gemini-flash-lite-latest",
     ]
     for m in fallback_pool:
         if m not in _UNAVAILABLE_GEMINI_MODELS and m not in model_candidates:
             model_candidates.append(m)
 
     if not model_candidates:
-        model_candidates = ["gemini-flash-lite-latest", "gemini-flash-latest"]
+        model_candidates = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.5-flash", "gemini-flash-lite-latest"]
 
-    # Restrict to at most 3 candidates to cut latency and ensure execution within strict 10-12s limit
-    model_candidates = model_candidates[:3]
+    # Allow up to 4 candidates so ultra-fast flash-lite fallback is reachable when 429 quota hits
+    model_candidates = model_candidates[:4]
 
     pil_image = _prepare_pil_image(image_data)
     if pil_image:
@@ -350,14 +354,15 @@ def _query_gemini(
 
     last_error = None
     gen_config = {"temperature": 0.1, "max_output_tokens": 2048}
+    req_options = {"timeout": 8.0}
 
     for idx, candidate in enumerate(model_candidates):
         try:
             model = genai.GenerativeModel(candidate, generation_config=gen_config)
             if pil_image:
-                response = model.generate_content([prompt, pil_image])
+                response = model.generate_content([prompt, pil_image], request_options=req_options)
             else:
-                response = model.generate_content(prompt)
+                response = model.generate_content(prompt, request_options=req_options)
 
             if response and hasattr(response, "text") and response.text:
                 return response.text
@@ -366,7 +371,11 @@ def _query_gemini(
             err_msg = str(e).lower()
             print(f"[GEMINI ERROR] Model '{candidate}' call failed: {type(e).__name__}: {e}", flush=True)
             logger.error("Gemini model '%s' call failed: %s", candidate, e, exc_info=True)
-            if "404" in err_msg or "not found" in err_msg or "not available" in err_msg or "is no longer available" in err_msg or "429" in err_msg or "quota" in err_msg or "resourceexhausted" in err_msg:
+            if (
+                "404" in err_msg or "not found" in err_msg or "not available" in err_msg or
+                "is no longer available" in err_msg or "429" in err_msg or "quota" in err_msg or
+                "resourceexhausted" in err_msg
+            ):
                 _UNAVAILABLE_GEMINI_MODELS.add(candidate)
             if "api_key_invalid" in err_msg or "invalid api key" in err_msg or "401" in err_msg or "403" in err_msg:
                 raise e
@@ -1053,12 +1062,26 @@ class OfflineHeuristicsEngine:
         if not q_tokens:
             return "Please provide a more specific question."
 
+        # Expand domain synonyms for semantic Q&A matching
+        SYNONYMS = {
+            "qualification": {"qualification", "qualifications", "education", "degree", "b.tech", "btech", "bachelor", "master", "m.tech", "mtech", "phd", "academic"},
+            "qualifications": {"qualification", "qualifications", "education", "degree", "b.tech", "btech", "bachelor", "master", "m.tech", "mtech", "phd", "academic"},
+            "education": {"education", "qualification", "degree", "b.tech", "btech", "bachelor", "master", "college", "university"},
+            "degree": {"degree", "qualification", "education", "b.tech", "btech", "bachelor", "master", "doctorate"},
+            "skills": {"skills", "skill", "technologies", "languages", "tools", "stack", "frameworks"},
+            "experience": {"experience", "work", "role", "projects", "employment", "deliverables"},
+        }
+        expanded_q_tokens = set(q_tokens)
+        for qt in q_tokens:
+            if qt.lower() in SYNONYMS:
+                expanded_q_tokens.update(SYNONYMS[qt.lower()])
+
         scored = []
         for i, s in enumerate(sentences):
             s_tokens = set(cls._tokenize(s)) - STOPWORDS
-            overlap = q_tokens.intersection(s_tokens)
+            overlap = expanded_q_tokens.intersection(s_tokens)
             if overlap:
-                score = len(overlap) / (len(q_tokens) + len(s_tokens) - len(overlap) + 0.1)
+                score = len(overlap) / (len(expanded_q_tokens) + len(s_tokens) - len(overlap) + 0.1)
                 scored.append((score, s, list(overlap)))
 
         scored.sort(key=lambda x: x[0], reverse=True)
@@ -1071,12 +1094,14 @@ class OfflineHeuristicsEngine:
             )
 
         best_matches = scored[:3]
-        response_lines = ["### Relevant Excerpts from Document\n"]
+        top_sentence = best_matches[0][1]
+        response_lines = [
+            f"Based on the document context: {top_sentence}\n\n### Relevant Excerpts from Document\n"
+        ]
         for score, sent, matched_words in best_matches:
-            response_lines.append(f"> \"{sent}\"\n")
+            response_lines.append(f"- {sent}\n")
 
-        response_lines.append("> *Note: Retrieved based on textual keyword overlap.*")
-        return "\n".join(response_lines)
+        return "\n".join(response_lines).strip()
 
     @classmethod
     def analyze_image_heuristics(cls, image: Image.Image, prompt: str = "") -> str:
@@ -1298,7 +1323,7 @@ class LLMRouter:
                         return res
                 elif candidate == "gemini":
                     cand_key = api_key if canonical == "gemini" else None
-                    cand_model = model_name if canonical == "gemini" and model_name else "gemini-2.5-flash"
+                    cand_model = model_name if canonical == "gemini" and model_name else "gemini-3.8-flash"
                     res = _execute_with_timeout(
                         _query_gemini,
                         12.0,
@@ -1343,7 +1368,7 @@ class LLMRouter:
         cls,
         prompt: str,
         provider: str = "Google Gemini",
-        model_name: Optional[str] = "gemini-3.5-flash",
+        model_name: Optional[str] = "gemini-3.8-flash",
         api_key: Optional[str] = None,
         **kwargs
     ) -> str:
@@ -1354,9 +1379,9 @@ class LLMRouter:
             if canonical == "gemini":
                 return _execute_with_timeout(
                     _query_gemini,
-                    12.0,
+                    16.0,
                     prompt=prompt,
-                    model_name=model_name or "gemini-2.5-flash",
+                    model_name=model_name or "gemini-3.8-flash",
                     api_key=api_key,
                     image_data=None
                 )
@@ -1501,7 +1526,7 @@ class LLMRouter:
             )
             return cls._clean_artifact_markdown(raw_res)
 
-        target_model = "gemini-3.5-flash" if canonical == "gemini" else kwargs.get("model_name")
+        target_model = "gemini-3.8-flash" if canonical == "gemini" else kwargs.get("model_name")
         try:
             raw_res = _execute_with_timeout(
                 query_llm,
@@ -1596,7 +1621,7 @@ def analyze_image(
     image_data: Any,
     prompt: str = "Analyze this image and extract all key data points and visual metrics.",
     provider: str = "Google Gemini",
-    model_name: Optional[str] = "gemini-3.5-flash",
+    model_name: Optional[str] = "gemini-3.8-flash",
     api_key: Optional[str] = None,
     **kwargs
 ) -> str:
@@ -1614,13 +1639,15 @@ def analyze_image(
 def query_llm(
     prompt: str,
     model_provider: str = "Google Gemini",
-    model_name: Optional[str] = "gemini-3.5-flash",
+    model_name: Optional[str] = "gemini-3.8-flash",
     api_key: Optional[str] = None,
     image_data: Optional[Any] = None,
     **kwargs
 ) -> str:
     """Unified routing entry point supporting both vision and text pipelines."""
     start_time = time.time()
+    if "provider" in kwargs:
+        model_provider = kwargs.pop("provider")
     canonical_primary = model_provider or "Google Gemini"
 
     LAST_TELEMETRY["primary_provider"] = canonical_primary

@@ -47,6 +47,21 @@ export const DataWorkspace: React.FC<DataWorkspaceProps> = ({
     setInsights(null);
 
     try {
+      if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem('ai_diagnoser_upload_history');
+        const list = stored ? JSON.parse(stored) : [];
+        const updated = [
+          {
+            name: selectedFile.name,
+            type: 'data',
+            time: 'Just now',
+            size: `${(selectedFile.size / 1024).toFixed(1)} KB`,
+            status: 'Uploaded',
+          },
+          ...list.filter((x: any) => x.name !== selectedFile.name),
+        ].slice(0, 10);
+        localStorage.setItem('ai_diagnoser_upload_history', JSON.stringify(updated));
+      }
       const prof = await api.profileData(selectedFile);
       setProfile(prof);
     } catch (err: any) {
@@ -79,7 +94,7 @@ export const DataWorkspace: React.FC<DataWorkspaceProps> = ({
       const rows = profile.head.map((r) => profile.columns.map((c) => JSON.stringify(r[c] ?? '')).join(',')).join('\n');
       const csvSnippet = `${headers}\n${rows}`;
 
-      const res = await api.getDataInsights(csvSnippet, 'Generate executive insights and highlight risks');
+      const res = await api.getDataInsights(csvSnippet, 'Highlight key patterns, anomalies, and potential data risks');
       setInsights(res);
       setActiveSubTab('ai');
     } catch (err: any) {
@@ -182,7 +197,7 @@ export const DataWorkspace: React.FC<DataWorkspaceProps> = ({
                 className={`tab-btn ${activeSubTab === 'preview' ? 'active' : ''}`}
                 onClick={() => setActiveSubTab('preview')}
               >
-                Sample Data Table
+                Dataset Preview Table
               </button>
               <button
                 className={`tab-btn ${activeSubTab === 'stats' ? 'active' : ''}`}

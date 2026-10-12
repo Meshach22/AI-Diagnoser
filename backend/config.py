@@ -77,7 +77,7 @@ class BackendSettings(BaseSettings):
 
     # LLM Router Defaults (Gemini, OpenAI, Groq)
     DEFAULT_PROVIDER: str = "Google Gemini"
-    DEFAULT_MODEL_GEMINI: str = "gemini-3.5-flash"
+    DEFAULT_MODEL_GEMINI: str = "gemini-3.8-flash"
     DEFAULT_MODEL_OPENAI: str = "gpt-4o-mini"
     DEFAULT_MODEL_GROQ: str = "llama-3.3-70b-versatile"
 
@@ -86,6 +86,11 @@ class BackendSettings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
     GROQ_API_KEY: Optional[str] = os.getenv("GROQ_API_KEY")
     DEEPSEEK_API_KEY: Optional[str] = os.getenv("DEEPSEEK_API_KEY")
+
+    # Persistent Secret Key & Token Lifespan (survives backend reloads and prevents invalidation)
+    SECRET_KEY: str = os.getenv("SECRET_KEY") or os.getenv("JWT_SECRET") or "ai-diagnoser-enterprise-persistent-session-secret-key-32chars"
+    JWT_SECRET: str = os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY") or "ai-diagnoser-enterprise-persistent-session-secret-key-32chars"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30  # 30-day token lifetime
 
     # n8n Automation Engine Settings
     N8N_BASE_URL: Optional[str] = os.getenv("N8N_BASE_URL")
@@ -124,8 +129,8 @@ class BackendSettings(BaseSettings):
         self.AUTH_DB_PATH = os.path.join(default_dir, "auth.db")
         return self
 
-    AUTH_SESSION_TTL_MINUTES: int = 480        # absolute session lifetime
-    AUTH_SESSION_IDLE_MINUTES: int = 60        # idle timeout
+    AUTH_SESSION_TTL_MINUTES: int = 60 * 24 * 30   # 30-day absolute session lifetime (survives restarts)
+    AUTH_SESSION_IDLE_MINUTES: int = 60 * 24 * 30  # 30-day idle timeout
     AUTH_MAX_FAILED_ATTEMPTS: int = 5          # per-account failures before lockout
     AUTH_LOCKOUT_MINUTES: int = 15             # lockout window / duration
     AUTH_ALLOW_SIGNUP: bool = False            # self-service registration (off by default)

@@ -29,6 +29,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
   const [docQuestion, setDocQuestion] = useState<string>('');
   const [qaAnswer, setQaAnswer] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
+  const [loadingMessage, setLoadingMessage] = useState<string>('Extracting document structure, pages, and textual content...');
   const [error, setError] = useState<string | null>(null);
 
   // Track the exact File instance that was last ingested to prevent effect loops and duplicate processing
@@ -37,6 +38,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
   // Ingestion executor
   const executeIngestion = useCallback(async (targetFile: File) => {
     setLoading(true);
+    setLoadingMessage('Extracting document structure, pages, and textual content...');
     setError(null);
     setParsed(null);
     setSummary(null);
@@ -79,6 +81,27 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
   // Handler for manual file upload / replacement inside the workspace
   const handleManualUpload = (selectedFile: File) => {
     setFile(selectedFile);
+    if (typeof window !== 'undefined') {
+      try {
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = selectedFile.size > 0 ? Math.floor(Math.log(selectedFile.size) / Math.log(k)) : 0;
+        const formattedSize = selectedFile.size > 0 ? parseFloat((selectedFile.size / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i] : '0 B';
+        const newItem = {
+          name: selectedFile.name,
+          type: 'document' as const,
+          time: 'Just now',
+          size: formattedSize,
+          status: 'Uploaded',
+        };
+        const stored = localStorage.getItem('ai_diagnoser_upload_history');
+        const existing = stored ? JSON.parse(stored) : [];
+        const updated = [newItem, ...existing.filter((item: any) => item.name !== selectedFile.name)].slice(0, 10);
+        localStorage.setItem('ai_diagnoser_upload_history', JSON.stringify(updated));
+      } catch {
+        // ignore
+      }
+    }
     if (!user) {
       openAuthModal();
       return;
@@ -91,6 +114,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
     const docText = parsed?.preview || parsed?.full_text;
     if (!docText || !user) return;
     setLoading(true);
+    setLoadingMessage('Synthesizing executive insights with Gemini 3.8 Flash...');
     setSummaryType(type);
     try {
       const res = await api.summarizeDocument(docText, type);
@@ -107,6 +131,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
     const docText = parsed?.preview || parsed?.full_text;
     if (!docText || !docQuestion.trim() || !user) return;
     setLoading(true);
+    setLoadingMessage('Querying document context with Gemini 3.8 Flash...');
     try {
       const res = await api.askDocument(docText, docQuestion.trim());
       setQaAnswer(res);
@@ -196,7 +221,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
       {/* Loading State */}
       {loading && (
         <div className="card animate-pulse" style={{ padding: 32, textAlign: 'center', color: 'var(--text-secondary)' }}>
-          Extracting document structure, pages, and textual content...
+          {loadingMessage}
         </div>
       )}
 

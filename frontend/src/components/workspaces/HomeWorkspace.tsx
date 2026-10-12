@@ -1,7 +1,7 @@
 // frontend/src/components/workspaces/HomeWorkspace.tsx
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { WorkspaceTab } from '../layout/Sidebar';
 import {
   UploadCloud,
@@ -24,6 +24,14 @@ interface HomeWorkspaceProps {
   onQuerySubmit: (query: string) => void;
 }
 
+interface RecentUploadItem {
+  name: string;
+  type: 'data' | 'document' | 'vision';
+  time: string;
+  size: string;
+  status: string;
+}
+
 export const HomeWorkspace: React.FC<HomeWorkspaceProps> = ({
   onSelectTab,
   onFileLoaded,
@@ -31,37 +39,73 @@ export const HomeWorkspace: React.FC<HomeWorkspaceProps> = ({
 }) => {
   const [query, setQuery] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [recentItems, setRecentItems] = useState<RecentUploadItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const chips = [
-    { label: 'Show key insights', prompt: 'Provide a comprehensive breakdown of the key executive insights, operational risks, and highest-priority opportunities.', icon: <BarChart size={14} /> },
-    { label: 'Create a summary', prompt: 'Generate an executive briefing highlighting key metrics, strategic conclusions, and actionable recommendations.', icon: <FileText size={14} /> },
-    { label: 'Find trends', prompt: 'Identify major statistical trends, growth trajectories, and abnormal patterns across the provided data.', icon: <TrendingUp size={14} /> },
-    { label: 'Visualize this data', prompt: 'Recommend the top 3 statistical visualizations for this dataset and summarize key variable distributions.', icon: <PieChart size={14} /> },
-    { label: 'Compare values', prompt: 'Perform a comparative variance analysis between high-performing segments and baseline averages.', icon: <FileSearch size={14} /> },
-  ];
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('ai_diagnoser_upload_history');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            setRecentItems(parsed);
+          }
+        }
+      } catch {
+        setRecentItems([]);
+      }
+    }
+  }, []);
 
-  const recentItems = [
-    { name: 'sample_business_metrics.csv', type: 'data', time: '10 mins ago', size: '1.2 KB', status: 'Cataloged' },
-    { name: 'sample_financial_report.txt', type: 'document', time: '1 hour ago', size: '2.4 KB', status: 'Analyzed' },
-    { name: 'sample_performance_chart.png', type: 'vision', time: 'Yesterday', size: '6.0 KB', status: 'Diagnosed' },
+  const formatBytes = (bytes: number): string => {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  };
+
+  const recordUpload = (file: File, type: 'data' | 'document' | 'vision') => {
+    const newItem: RecentUploadItem = {
+      name: file.name,
+      type,
+      time: 'Just now',
+      size: formatBytes(file.size),
+      status: 'Uploaded',
+    };
+    try {
+      const stored = localStorage.getItem('ai_diagnoser_upload_history');
+      const existing: RecentUploadItem[] = stored ? JSON.parse(stored) : [];
+      const updated = [newItem, ...existing.filter((item) => item.name !== file.name)].slice(0, 10);
+      localStorage.setItem('ai_diagnoser_upload_history', JSON.stringify(updated));
+      setRecentItems(updated);
+    } catch {
+      // ignore
+    }
+  };
+
+  const chips = [
+    { label: 'Show key insights', prompt: 'Highlight the core findings, operational risks, and key opportunities in this data.', icon: <BarChart size={14} /> },
+    { label: 'Create a summary', prompt: 'Provide a concise executive summary with key metrics, conclusions, and next steps.', icon: <FileText size={14} /> },
+    { label: 'Find trends', prompt: 'Identify primary trends, notable changes over time, and outliers in this dataset.', icon: <TrendingUp size={14} /> },
+    { label: 'Visualize this data', prompt: 'Suggest the 3 most informative visualizations for this dataset and explain why.', icon: <PieChart size={14} /> },
+    { label: 'Compare values', prompt: 'Compare performance across segments and summarize key differences against baseline averages.', icon: <FileSearch size={14} /> },
   ];
 
   const handleFile = (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    let detectedType: 'data' | 'document' | 'vision' = 'data';
     if (['csv', 'xlsx', 'xls', 'parquet'].includes(ext)) {
-      onFileLoaded(file, 'data');
-      onSelectTab('unified');
+      detectedType = 'data';
     } else if (['pdf', 'docx', 'doc', 'txt'].includes(ext)) {
-      onFileLoaded(file, 'document');
-      onSelectTab('unified');
+      detectedType = 'document';
     } else if (['png', 'jpg', 'jpeg', 'webp'].includes(ext)) {
-      onFileLoaded(file, 'vision');
-      onSelectTab('unified');
-    } else {
-      onFileLoaded(file, 'data');
-      onSelectTab('unified');
+      detectedType = 'vision';
     }
+    recordUpload(file, detectedType);
+    onFileLoaded(file, detectedType);
+    onSelectTab('unified');
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -170,80 +214,88 @@ export const HomeWorkspace: React.FC<HomeWorkspaceProps> = ({
           </button>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {recentItems.map((item, index) => (
-            <div
-              key={index}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '12px 16px',
-                borderRadius: 'var(--radius-md)',
-                background: 'var(--bg-subtle)',
-                border: '1px solid var(--border-soft)',
-                transition: 'background var(--transition-fast)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <div
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 'var(--radius-sm)',
-                    background: 'var(--bg-card)',
-                    border: '1px solid var(--border-soft)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'var(--accent-red)',
-                  }}
-                >
-                  {item.type === 'data' ? <FileSpreadsheet size={18} /> : item.type === 'document' ? <FileText size={18} /> : <ImageIcon size={18} />}
+        {recentItems.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '36px 16px', color: 'var(--text-muted)' }}>
+            <FileSpreadsheet size={32} style={{ margin: '0 auto 10px', opacity: 0.4 }} />
+            <p style={{ fontWeight: 600, fontSize: '0.92rem', color: 'var(--text-secondary)' }}>No documents uploaded yet</p>
+            <p style={{ fontSize: '0.8rem', marginTop: 4 }}>Upload your datasets, documents, or images above to start analyzing and see your history here.</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {recentItems.map((item, index) => (
+              <div
+                key={index}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '12px 16px',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'var(--bg-subtle)',
+                  border: '1px solid var(--border-soft)',
+                  transition: 'background var(--transition-fast)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'var(--bg-card)',
+                      border: '1px solid var(--border-soft)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--accent-red)',
+                    }}
+                  >
+                    {item.type === 'data' ? <FileSpreadsheet size={18} /> : item.type === 'document' ? <FileText size={18} /> : <ImageIcon size={18} />}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '0.92rem', color: 'var(--text-primary)' }}>
+                      {item.name}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', gap: 10, marginTop: 2 }}>
+                      <span>{item.size}</span>
+                      <span>•</span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Clock size={12} /> {item.time}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: '0.92rem', color: 'var(--text-primary)' }}>
-                    {item.name}
-                  </div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', gap: 10, marginTop: 2 }}>
-                    <span>{item.size}</span>
-                    <span>•</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <Clock size={12} /> {item.time}
-                    </span>
-                  </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span
+                    style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      padding: '3px 8px',
+                      borderRadius: 'var(--radius-full)',
+                      background: 'rgba(16, 185, 129, 0.12)',
+                      color: '#059669',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
+                    <CheckCircle2 size={12} />
+                    {item.status}
+                  </span>
+
+                  <button
+                    className="btn btn-outline btn-sm"
+                    onClick={() => onSelectTab('unified')}
+                  >
+                    <span>Explore</span>
+                    <ExternalLink size={13} />
+                  </button>
                 </div>
               </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span
-                  style={{
-                    fontSize: '0.75rem',
-                    fontWeight: 600,
-                    padding: '3px 8px',
-                    borderRadius: 'var(--radius-full)',
-                    background: 'rgba(16, 185, 129, 0.12)',
-                    color: '#059669',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                  }}
-                >
-                  <CheckCircle2 size={12} />
-                  {item.status}
-                </span>
-
-                <button
-                  className="btn btn-outline btn-sm"
-                  onClick={() => onSelectTab('unified')}
-                >
-                  <span>Explore</span>
-                  <ExternalLink size={13} />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
