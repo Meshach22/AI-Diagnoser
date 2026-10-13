@@ -90,6 +90,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     initAuth();
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleAuthExpired = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const endpoint = customEvent.detail?.endpoint || '';
+      // Only pop modal if the request wasn't an automatic background health/me probe
+      if (!endpoint.includes('/auth/me') && !endpoint.includes('/health')) {
+        console.warn('Session expired or requires authentication:', customEvent.detail?.message);
+        setIsAuthModalOpen(true);
+      }
+    };
+
+    window.addEventListener('ai_diagnoser_auth_expired', handleAuthExpired);
+    return () => {
+      window.removeEventListener('ai_diagnoser_auth_expired', handleAuthExpired);
+    };
+  }, []);
+
   const login = async (email: string, password: string) => {
     const data = await api.login(email, password);
     setTokenState(data.token);

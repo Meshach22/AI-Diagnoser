@@ -88,9 +88,9 @@ class BackendSettings(BaseSettings):
     DEEPSEEK_API_KEY: Optional[str] = os.getenv("DEEPSEEK_API_KEY")
 
     # Persistent Secret Key & Token Lifespan (survives backend reloads and prevents invalidation)
-    SECRET_KEY: str = os.getenv("SECRET_KEY") or os.getenv("JWT_SECRET") or "ai-diagnoser-enterprise-persistent-session-secret-key-32chars"
-    JWT_SECRET: str = os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY") or "ai-diagnoser-enterprise-persistent-session-secret-key-32chars"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30  # 30-day token lifetime
+    SECRET_KEY: str = os.getenv("SECRET_KEY") or os.getenv("JWT_SECRET") or "ai-diagnoser-production-super-secret-key-2026"
+    JWT_SECRET: str = os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY") or "ai-diagnoser-production-super-secret-key-2026"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200  # 30 days (43,200 minutes)
 
     # n8n Automation Engine Settings
     N8N_BASE_URL: Optional[str] = os.getenv("N8N_BASE_URL")
@@ -129,8 +129,8 @@ class BackendSettings(BaseSettings):
         self.AUTH_DB_PATH = os.path.join(default_dir, "auth.db")
         return self
 
-    AUTH_SESSION_TTL_MINUTES: int = 60 * 24 * 30   # 30-day absolute session lifetime (survives restarts)
-    AUTH_SESSION_IDLE_MINUTES: int = 60 * 24 * 30  # 30-day idle timeout
+    AUTH_SESSION_TTL_MINUTES: int = 43200   # 30-day absolute session lifetime (survives restarts)
+    AUTH_SESSION_IDLE_MINUTES: int = 43200  # 30-day idle timeout
     AUTH_MAX_FAILED_ATTEMPTS: int = 5          # per-account failures before lockout
     AUTH_LOCKOUT_MINUTES: int = 15             # lockout window / duration
     AUTH_ALLOW_SIGNUP: bool = False            # self-service registration (off by default)

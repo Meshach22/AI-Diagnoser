@@ -1,7 +1,7 @@
 // frontend/src/components/workspaces/ChatWorkspace.tsx
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { api, ChatResponse } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -29,6 +29,15 @@ interface ChatWorkspaceProps {
   activeContextText?: string;
 }
 
+interface UploadedDocMeta {
+  id: string;
+  filename: string;
+  full_text?: string;
+  preview?: string;
+  page_count?: number;
+  word_count?: number;
+}
+
 export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   initialPrompt = '',
   activeContextText = '',
@@ -47,6 +56,29 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     },
   ]);
   const [error, setError] = useState<string | null>(null);
+  const [persistedDocs, setPersistedDocs] = useState<UploadedDocMeta[]>([]);
+  const [activeDocContext, setActiveDocContext] = useState<UploadedDocMeta | null>(null);
+
+  // Auto-discover uploaded documents from persistent workspace memory
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const memKey = user?.email ? `ai_diagnoser_memory_${user.email}` : 'ai_diagnoser_memory_guest';
+      const raw = localStorage.getItem(memKey) || localStorage.getItem('ai_diagnoser_memory_guest');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed?.uploadedDocs) && parsed.uploadedDocs.length > 0) {
+          setPersistedDocs(parsed.uploadedDocs);
+          const active = parsed.activeDocId && parsed.activeDocId !== 'all'
+            ? parsed.uploadedDocs.find((d: any) => d.id === parsed.activeDocId)
+            : parsed.uploadedDocs[0];
+          setActiveDocContext(active || parsed.uploadedDocs[0]);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load persisted document context for chat:', e);
+    }
+  }, [user?.email]);
 
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -69,9 +101,26 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     setLoading(true);
     setError(null);
 
-    // Combine user query with active context if present
-    const promptToSend = activeContextText
-      ? `Context Document / Dataset:\n${activeContextText.slice(0, 3000)}\n\nUser Question:\n${userMsg.text}`
+    // Resolve document context to inject for Gemini 3.8 Flash
+    let contextToInject = activeContextText;
+    if (!contextToInject && persistedDocs.length > 0) {
+      const q = userMsg.text.toLowerCase();
+      // Match document if filename or base name is referenced in query (e.g. "Shalom resume.pdf", "resume")
+      const matched = persistedDocs.find((d) => {
+        if (!d.filename) return false;
+        const baseName = d.filename.toLowerCase().replace(/\.[^/.]+$/, '');
+        return q.includes(d.filename.toLowerCase()) || (baseName.length >= 3 && q.includes(baseName));
+      });
+
+      const docToUse = matched || activeDocContext || persistedDocs[0];
+      if (docToUse && docToUse.full_text) {
+        contextToInject = `Document: "${docToUse.filename}" (Pages: ${docToUse.page_count || 1}, Words: ${docToUse.word_count || 0})\nContent:\n${docToUse.full_text}`;
+      }
+    }
+
+    // Combine user query with active document context (Gemini 3.8 Flash handles full context)
+    const promptToSend = contextToInject
+      ? `=== ACTIVE DOCUMENT CONTEXT ===\n${contextToInject.slice(0, 35000)}\n\n=== USER QUESTION ===\n${userMsg.text}`
       : userMsg.text;
 
     try {
@@ -147,7 +196,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         </div>
       </div>
 
-      {activeContextText && (
+      {(activeContextText || activeDocContext) && (
         <div
           style={{
             padding: '8px 14px',
@@ -158,11 +207,45 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             color: 'var(--text-secondary)',
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
             gap: 8,
           }}
         >
-          <FileText size={14} style={{ color: 'var(--accent-red)' }} />
-          <span>Active context injected into LLM query ({activeContextText.length} characters)</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <FileText size={14} style={{ color: 'var(--accent-red)' }} />
+            <span>
+              Connected Document:{' '}
+              <strong style={{ color: 'var(--text-primary)' }}>
+                {activeDocContext ? activeDocContext.filename : 'Active Injected Context'}
+              </strong>
+              {activeDocContext?.word_count ? ` (${activeDocContext.word_count.toLocaleString()} words)` : ''}
+            </span>
+          </div>
+
+          {persistedDocs.length > 1 && (
+            <select
+              value={activeDocContext?.id || ''}
+              onChange={(e) => {
+                const target = persistedDocs.find((d) => d.id === e.target.value);
+                if (target) setActiveDocContext(target);
+              }}
+              style={{
+                fontSize: '0.75rem',
+                padding: '2px 8px',
+                borderRadius: 'var(--radius-xs)',
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-soft)',
+                color: 'var(--text-primary)',
+              }}
+            >
+              {persistedDocs.map((doc) => (
+                <option key={doc.id} value={doc.id}>
+                  {doc.filename}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       )}
 

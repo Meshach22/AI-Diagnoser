@@ -210,6 +210,17 @@ class ApiClient {
           const text = await res.text().catch(() => '');
           if (text) errorMsg = text;
         }
+
+        if (res.status === 401) {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('ai_diagnoser_auth_expired', {
+                detail: { message: errorMsg, endpoint, status: 401 },
+              })
+            );
+          }
+        }
+
         throw new Error(errorMsg);
       }
 

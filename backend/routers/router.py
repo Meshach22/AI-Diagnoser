@@ -7,7 +7,7 @@ Thin HTTP controller delegating to ChatService.
 from fastapi import APIRouter, Depends, HTTPException, status
 from starlette.concurrency import run_in_threadpool
 
-from backend.routers.auth import get_current_session, require_admin
+from backend.routers.auth import get_chat_session, get_current_session, require_admin
 from backend.schemas.router import (
     LLMQueryRequest,
     LLMQueryResponse,
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/v1/router", tags=["LLM Router"])
 
 
 @router.get("/providers", response_model=ProvidersCatalogResponse, summary="List LLM providers & status")
-async def list_providers(session: SessionInfo = Depends(get_current_session)):
+async def list_providers(session: SessionInfo = Depends(get_chat_session)):
     """Delegates provider catalog and configuration status queries to ChatService."""
     try:
         catalog = ChatService.list_providers()
@@ -36,7 +36,7 @@ async def list_providers(session: SessionInfo = Depends(get_current_session)):
 @router.post("/query", response_model=LLMQueryResponse, summary="Direct unified LLM query")
 async def execute_query(
     req: LLMQueryRequest,
-    session: SessionInfo = Depends(get_current_session),
+    session: SessionInfo = Depends(get_chat_session),
 ):
     """Delegates prompt execution across providers to ChatService."""
     try:

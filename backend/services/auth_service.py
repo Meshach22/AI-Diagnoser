@@ -19,7 +19,9 @@ Design:
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -84,6 +86,71 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def _create_signed_token(
+    user_id: int,
+    email: str,
+    name: str,
+    role: str,
+    is_admin: bool,
+    created_at: float,
+    expires_at: float,
+    secret_key: str
+) -> str:
+    """Create an HMAC-SHA256 authenticated persistent session token."""
+    payload_data = {
+        "uid": user_id,
+        "em": email,
+        "nm": name,
+        "ro": role,
+        "adm": 1 if is_admin else 0,
+        "ca": int(created_at),
+        "exp": int(expires_at),
+        "rnd": secrets.token_hex(8),
+    }
+    raw_json = json.dumps(payload_data, separators=(",", ":"))
+    payload_b64 = base64.urlsafe_b64encode(raw_json.encode("utf-8")).decode("utf-8").rstrip("=")
+    sig = hmac.new(secret_key.encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"adt_{payload_b64}.{sig}"
+
+
+def _verify_signed_token(token: str, secret_key: str, idle_timeout: float = 86400 * 30) -> Optional[SessionInfo]:
+    """Verify HMAC signature and decode payload if token has signed format."""
+    if not token or not token.startswith("adt_"):
+        return None
+    try:
+        parts = token[4:].split(".")
+        if len(parts) != 2:
+            return None
+        payload_b64, sig = parts[0], parts[1]
+        expected_sig = hmac.new(secret_key.encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not secrets.compare_digest(sig, expected_sig):
+            return None
+
+        pad_len = 4 - (len(payload_b64) % 4)
+        if pad_len != 4:
+            payload_b64 += "=" * pad_len
+        payload_json = base64.urlsafe_b64decode(payload_b64).decode("utf-8")
+        data = json.loads(payload_json)
+
+        now = time.time()
+        exp = float(data.get("exp", 0))
+        if now >= exp:
+            return None
+
+        return SessionInfo(
+            user_id=int(data.get("uid", 0)),
+            email=str(data.get("em", "")),
+            name=str(data.get("nm", "User")),
+            role=str(data.get("ro", "user")),
+            is_admin=bool(data.get("adm", 0)),
+            created_at=float(data.get("ca", now)),
+            expires_at=exp,
+            idle_expires_at=min(exp, now + idle_timeout),
+        )
+    except Exception:
+        return None
+
+
 def validate_password(password: str) -> None:
     if not isinstance(password, str) or len(password) < PASSWORD_MIN_LENGTH:
         raise AuthError("weak_password", f"Password must be at least {PASSWORD_MIN_LENGTH} characters.")
@@ -107,7 +174,7 @@ def validate_name(name: str) -> str:
     return clean
 
 
-ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30  # 30 days (43,200 minutes)
+ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200  # 30 days (43,200 minutes)
 
 
 class AuthService:
@@ -324,8 +391,22 @@ class AuthService:
             raise AuthError("invalid_credentials", GENERIC_LOGIN_ERROR, 401)
 
         now = self._now()
-        token = secrets.token_urlsafe(32)
         expires_at = now + self.session_ttl
+        user_role = row["role"] if "role" in row.keys() else "user"
+        user_admin = bool(row["is_admin"]) if "is_admin" in row.keys() else False
+
+        from backend.config import settings
+        secret = settings.SECRET_KEY or "ai-diagnoser-production-super-secret-key-2026"
+        token = _create_signed_token(
+            user_id=row["id"],
+            email=row["email"],
+            name=row["name"],
+            role=user_role,
+            is_admin=user_admin,
+            created_at=now,
+            expires_at=expires_at,
+            secret_key=secret,
+        )
         with closing(self._connect()) as conn, conn:
             conn.execute("DELETE FROM login_failures WHERE email = ?", (norm_email,))
             if self._ph.check_needs_rehash(row["password_hash"]):
@@ -353,11 +434,13 @@ class AuthService:
         return token, info
 
     def validate_session(self, token: Optional[str]) -> Optional[SessionInfo]:
-        """Return the session if valid; refresh idle timer. Expired sessions are deleted."""
-        if not token or not isinstance(token, str) or len(token) > 256:
+        """Return the session if valid; refresh idle timer. Recovers signed tokens across server restarts."""
+        if not token or not isinstance(token, str) or len(token) > 512:
             return None
         token_hash = _hash_token(token)
         now = self._now()
+
+        # 1. Primary lookup in persistent sessions table
         with closing(self._connect()) as conn, conn:
             row = conn.execute(
                 """SELECT s.user_id, s.created_at, s.last_seen_at, s.expires_at,
@@ -365,26 +448,54 @@ class AuthService:
                    FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?""",
                 (token_hash,),
             ).fetchone()
-            if not row:
-                return None
-            if now >= row["expires_at"] or now - row["last_seen_at"] >= self.session_idle or not row["is_active"]:
-                conn.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
-                return None
-            conn.execute("UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?", (now, token_hash))
+            if row:
+                if now >= row["expires_at"] or now - row["last_seen_at"] >= self.session_idle or not row["is_active"]:
+                    conn.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
+                    return None
+                conn.execute("UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?", (now, token_hash))
 
-        user_role = row["role"] if "role" in row.keys() else "user"
-        user_admin = bool(row["is_admin"]) if "is_admin" in row.keys() else False
+                user_role = row["role"] if "role" in row.keys() else "user"
+                user_admin = bool(row["is_admin"]) if "is_admin" in row.keys() else False
 
-        return SessionInfo(
-            user_id=row["user_id"],
-            email=row["email"],
-            name=row["name"],
-            role=user_role,
-            is_admin=user_admin,
-            created_at=row["created_at"],
-            expires_at=row["expires_at"],
-            idle_expires_at=min(row["expires_at"], now + self.session_idle),
-        )
+                return SessionInfo(
+                    user_id=row["user_id"],
+                    email=row["email"],
+                    name=row["name"],
+                    role=user_role,
+                    is_admin=user_admin,
+                    created_at=row["created_at"],
+                    expires_at=row["expires_at"],
+                    idle_expires_at=min(row["expires_at"], now + self.session_idle),
+                )
+
+        # 2. Cryptographic recovery: if token is not found in sessions table (e.g. backend restarted or ephemeral db re-created),
+        # verify HMAC-SHA256 signature using persistent SECRET_KEY
+        from backend.config import settings
+        secret = settings.SECRET_KEY or "ai-diagnoser-production-super-secret-key-2026"
+        recovered = _verify_signed_token(token, secret, idle_timeout=self.session_idle)
+        if recovered:
+            try:
+                with closing(self._connect()) as conn, conn:
+                    u_row = conn.execute("SELECT id, is_active FROM users WHERE email = ?", (recovered.email,)).fetchone()
+                    if u_row:
+                        uid = u_row["id"]
+                        if not u_row["is_active"]:
+                            return None
+                    else:
+                        cur = conn.execute(
+                            "INSERT INTO users (email, name, password_hash, role, is_admin, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                            (recovered.email, recovered.name, self._dummy_hash, recovered.role, int(recovered.is_admin), now),
+                        )
+                        uid = cur.lastrowid
+                    conn.execute(
+                        "INSERT OR REPLACE INTO sessions (token_hash, user_id, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+                        (token_hash, uid, recovered.created_at, now, recovered.expires_at),
+                    )
+            except Exception:
+                pass
+            return recovered
+
+        return None
 
     def revoke_session(self, token: Optional[str]) -> None:
         if not token:
@@ -527,8 +638,22 @@ class AuthService:
                 row = conn.execute("SELECT id, email, name, role, is_admin, is_active FROM users WHERE id = ?", (user_id,)).fetchone()
 
         now = self._now()
-        token = secrets.token_urlsafe(32)
         expires_at = now + self.session_ttl
+        user_role = row["role"] if "role" in row.keys() else "user"
+        user_admin = bool(row["is_admin"]) if "is_admin" in row.keys() else False
+
+        from backend.config import settings
+        secret = settings.SECRET_KEY or "ai-diagnoser-production-super-secret-key-2026"
+        token = _create_signed_token(
+            user_id=row["id"],
+            email=row["email"],
+            name=row["name"],
+            role=user_role,
+            is_admin=user_admin,
+            created_at=now,
+            expires_at=expires_at,
+            secret_key=secret,
+        )
         with closing(self._connect()) as conn, conn:
             conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, row["id"]))
             conn.execute(
