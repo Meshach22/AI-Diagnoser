@@ -421,11 +421,14 @@ class ApiClient {
   public async summarizeDocument(
     text: string,
     summaryType: string = 'executive',
-    provider: string = 'Google Gemini'
+    provider: string = 'Google Gemini',
+    modelName?: string
   ): Promise<string> {
+    const payload: Record<string, any> = { text, summary_type: summaryType, provider };
+    if (modelName) payload.model_name = modelName;
     const data = await this.request<{ result: string }>('/api/v1/documents/summarize', {
       method: 'POST',
-      body: JSON.stringify({ text, summary_type: summaryType, provider }),
+      body: JSON.stringify(payload),
     });
     return data.result;
   }
@@ -434,18 +437,21 @@ class ApiClient {
     text: string,
     question: string,
     provider: string = 'Google Gemini',
-    chatHistory: Array<{ role: string; content: string }> = []
+    chatHistory: Array<{ role: string; content: string }> = [],
+    modelName?: string
   ): Promise<string> {
+    const payload: Record<string, any> = {
+      text,
+      question,
+      query: question,
+      provider,
+      chat_history: chatHistory,
+      history: chatHistory,
+    };
+    if (modelName) payload.model_name = modelName;
     const data = await this.request<{ result: string }>('/api/v1/documents/ask', {
       method: 'POST',
-      body: JSON.stringify({
-        text,
-        question,
-        query: question,
-        provider,
-        chat_history: chatHistory,
-        history: chatHistory,
-      }),
+      body: JSON.stringify(payload),
     });
     return data.result;
   }
