@@ -247,6 +247,7 @@ async def logout(
         httponly=True,
         secure=settings.AUTH_COOKIE_SECURE,
         samesite=settings.AUTH_COOKIE_SAMESITE,
+    )
     return {"status": "success", "message": "Signed out successfully."}
 
 
