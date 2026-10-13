@@ -123,7 +123,7 @@ class BackendClient:
             f"{self.base_url}/api/v1/documents/summarize",
             json=payload,
             headers=self._headers(),
-            timeout=40.0,
+            timeout=60.0,
         )
         if resp.status_code == 200:
             return resp.json().get("result", "")
@@ -149,7 +149,7 @@ class BackendClient:
             f"{self.base_url}/api/v1/documents/ask",
             json=payload,
             headers=self._headers(),
-            timeout=30.0,
+            timeout=60.0,
         )
         if resp.status_code == 200:
             return resp.json().get("result", "")

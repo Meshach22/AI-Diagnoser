@@ -201,9 +201,10 @@ def generate_document_summary(
     model_provider: str = "Google Gemini",
     model_name: str = "gemini-3.8-flash",
     api_key: Optional[str] = None,
+    timeout: float = 45.0,
     **kwargs
 ) -> str:
-    """Generate structured summary from document text using the LLM router."""
+    """Generate structured summary from document text using the LLM router with 45.0s timeout."""
     if not doc_text.strip():
         return "⚠️ Document text is empty. Please upload a valid document."
 
@@ -232,6 +233,7 @@ def generate_document_summary(
         model_provider=model_provider,
         model_name=model_name,
         api_key=api_key,
+        timeout=timeout,
         **kwargs
     )
 
@@ -246,9 +248,10 @@ def ask_document_question(
     model_provider: str = "Google Gemini",
     model_name: str = "gemini-3.8-flash",
     api_key: Optional[str] = None,
+    timeout: float = 45.0,
     **kwargs
 ) -> str:
-    """Query the document text to answer a specific user question using NotebookLM conversational grounding."""
+    """Query the document text to answer a specific user question using NotebookLM conversational grounding with 45.0s timeout."""
     if not question.strip():
         return "Please enter a valid question."
 
@@ -270,8 +273,14 @@ def ask_document_question(
         model_provider=model_provider,
         model_name=model_name,
         api_key=api_key,
+        timeout=timeout,
         **kwargs
     )
+
+
+# Standard functional aliases
+summarize_document = generate_document_summary
+answer_question = ask_document_question
 
 
 def export_summary_markdown(

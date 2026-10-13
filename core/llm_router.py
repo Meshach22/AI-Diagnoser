@@ -26,6 +26,7 @@ import time
 from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple, Union
 from PIL import Image, ImageOps
+import requests
 
 from core.prompt_policy import ANALYST_SYSTEM_PROMPT
 
@@ -242,8 +243,8 @@ def compress_and_downsample_image(
         return image
 
 
-def _execute_with_timeout(func, timeout_seconds=30.0, *args, **kwargs):
-    """Executes a function under a configurable timeout (default 30.0s) using the shared executor."""
+def _execute_with_timeout(func, timeout_seconds=45.0, *args, **kwargs):
+    """Executes a function under a configurable timeout (default 45.0s) using the shared executor."""
     future = _TIMEOUT_EXECUTOR.submit(func, *args, **kwargs)
     try:
         return future.result(timeout=timeout_seconds)
@@ -358,7 +359,7 @@ def _query_gemini(
 
     last_error = None
     gen_config = {"temperature": 0.1, "max_output_tokens": 2048}
-    req_options = {"timeout": 12.0}
+    req_options = {"timeout": 45.0}
 
     for idx, candidate in enumerate(model_candidates):
         try:
@@ -389,9 +390,22 @@ def _query_gemini(
                 LAST_TELEMETRY["active_provider"] = "Google Gemini"
                 return extracted_text
 
+        except (requests.exceptions.Timeout, requests.exceptions.ReadTimeout, TimeoutError) as e:
+            last_error = e
+            print(f"[GEMINI WARNING] Model '{candidate}' timed out after 45s: {type(e).__name__}: {e}. Cascading to next candidate...", flush=True)
+            logger.warning(
+                f"Model {candidate} timed out after 45s. Cascading to next candidate..."
+            )
+            continue
         except Exception as e:
             last_error = e
             err_msg = str(e).lower()
+            if "timed out" in err_msg or "timeout" in err_msg or "readtimeout" in err_msg:
+                print(f"[GEMINI WARNING] Model '{candidate}' timed out after 45s: {type(e).__name__}: {e}. Cascading to next candidate...", flush=True)
+                logger.warning(
+                    f"Model {candidate} timed out after 45s. Cascading to next candidate..."
+                )
+                continue
             print(f"[GEMINI WARNING] Model '{candidate}' failed: {type(e).__name__}: {e}", flush=True)
             logger.warning(
                 "Gemini candidate '%s' call failed (%s: %s). Cascading to next candidate...",
@@ -1346,7 +1360,7 @@ class LLMRouter:
                     cand_model = model_name if canonical == "gemini" and model_name else "gemini-3.8-flash"
                     res = _execute_with_timeout(
                         _query_gemini,
-                        30.0,
+                        120.0,
                         prompt=prompt,
                         model_name=cand_model,
                         api_key=cand_key,
@@ -1399,7 +1413,7 @@ class LLMRouter:
             if canonical == "gemini":
                 return _execute_with_timeout(
                     _query_gemini,
-                    30.0,
+                    120.0,
                     prompt=prompt,
                     model_name=model_name or "gemini-3.8-flash",
                     api_key=api_key,
@@ -1737,3 +1751,53 @@ def query_llm(
         pass
 
     return result
+
+
+def summarize_document(
+    text: str,
+    summary_type: str = "executive",
+    provider: str = "Google Gemini",
+    model_name: Optional[str] = "gemini-3.8-flash",
+    api_key: Optional[str] = None,
+    timeout: float = 45.0,
+    **kwargs
+) -> str:
+    """Summarize document text with default 45.0s timeout."""
+    from pipelines.document_pipeline import generate_document_summary
+    return generate_document_summary(
+        doc_text=text,
+        summary_type=summary_type,
+        model_provider=provider,
+        model_name=model_name,
+        api_key=api_key,
+        timeout=timeout,
+        **kwargs
+    )
+
+
+def answer_question(
+    text: str,
+    question: str,
+    chat_history: Optional[List[Dict[str, Any]]] = None,
+    provider: str = "Google Gemini",
+    model_name: Optional[str] = "gemini-3.8-flash",
+    api_key: Optional[str] = None,
+    timeout: float = 45.0,
+    **kwargs
+) -> str:
+    """Answer question about document with default 45.0s timeout."""
+    from pipelines.document_pipeline import ask_document_question
+    return ask_document_question(
+        doc_text=text,
+        question=question,
+        chat_history=chat_history,
+        model_provider=provider,
+        model_name=model_name,
+        api_key=api_key,
+        timeout=timeout,
+        **kwargs
+    )
+
+
+LLMRouter.summarize_document = staticmethod(summarize_document)
+LLMRouter.answer_question = staticmethod(answer_question)

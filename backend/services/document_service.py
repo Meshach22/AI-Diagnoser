@@ -42,8 +42,9 @@ class DocumentService:
         provider: str = "Google Gemini",
         model_name: Optional[str] = None,
         api_key: Optional[str] = None,
+        timeout: float = 45.0,
     ) -> Dict[str, Any]:
-        """Orchestrate document summarization with telemetry capture."""
+        """Orchestrate document summarization with telemetry capture and 45.0s timeout."""
         if not text or not text.strip():
             raise ValueError("Document body text is required for summarization.")
 
@@ -57,6 +58,7 @@ class DocumentService:
                 model_provider=provider,
                 model_name=model_name,
                 api_key=api_key,
+                timeout=timeout,
             )
             telemetry = get_last_telemetry()
             return {
@@ -78,8 +80,9 @@ class DocumentService:
         provider: str = "Google Gemini",
         model_name: Optional[str] = None,
         api_key: Optional[str] = None,
+        timeout: float = 45.0,
     ) -> Dict[str, Any]:
-        """Orchestrate contextual Ask-the-Document Q&A with multi-turn chat history."""
+        """Orchestrate contextual Ask-the-Document Q&A with multi-turn chat history and 45.0s timeout."""
         if not text or not text.strip():
             raise ValueError("Document text context is required for Q&A.")
         if not question or not question.strip():
@@ -93,6 +96,7 @@ class DocumentService:
                 model_provider=provider,
                 model_name=model_name,
                 api_key=api_key,
+                timeout=timeout,
             )
             telemetry = get_last_telemetry()
             return {

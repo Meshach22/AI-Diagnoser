@@ -390,10 +390,14 @@ class ApiClient {
     provider: string = 'Google Gemini',
     modelName?: string
   ): Promise<ChatResponse> {
-    const raw = await this.request<any>('/api/v1/router/query', {
-      method: 'POST',
-      body: JSON.stringify({ prompt, provider, model_name: modelName }),
-    });
+    const raw = await this.request<any>(
+      '/api/v1/router/query',
+      {
+        method: 'POST',
+        body: JSON.stringify({ prompt, provider, model_name: modelName }),
+      },
+      60000
+    );
     const text = raw.response || raw.result || '';
     return {
       result: text,
@@ -471,10 +475,14 @@ class ApiClient {
   ): Promise<string> {
     const payload: Record<string, any> = { text, summary_type: summaryType, provider };
     if (modelName) payload.model_name = modelName;
-    const data = await this.request<{ result: string }>('/api/v1/documents/summarize', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+    const data = await this.request<{ result: string }>(
+      '/api/v1/documents/summarize',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      60000
+    );
     return data.result;
   }
 
@@ -494,10 +502,14 @@ class ApiClient {
       history: chatHistory,
     };
     if (modelName) payload.model_name = modelName;
-    const data = await this.request<{ result: string }>('/api/v1/documents/ask', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+    const data = await this.request<{ result: string }>(
+      '/api/v1/documents/ask',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      60000
+    );
     return data.result;
   }
 
