@@ -58,7 +58,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
     <aside className="sidebar-container" style={{ display: 'flex', flexDirection: 'column' }}>
       <div className="nav-group">
         <div style={{ padding: '0 10px 14px 10px', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em' }}>
-          Workspace Navigation
+          WORKSPACE
         </div>
 
         {navItems.map((item) => {

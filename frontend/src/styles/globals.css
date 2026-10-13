@@ -274,6 +274,12 @@ html, body {
   color: var(--text-secondary);
 }
 
+/* Smooth Chat Scrolling */
+.chat-scroll-container {
+  scroll-behavior: smooth;
+  overscroll-behavior-y: contain;
+}
+
 /* Cards & Surfaces */
 .card {
   background: var(--bg-card);

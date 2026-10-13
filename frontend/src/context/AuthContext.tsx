@@ -11,7 +11,7 @@ interface AuthContextType {
   isAuthModalOpen: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, name: string, password: string) => Promise<void>;
-  loginWithGoogle: (email?: string, name?: string) => Promise<void>;
+  loginWithGoogle: (email?: string, name?: string, picture?: string, credential?: string) => Promise<void>;
   logout: () => Promise<void>;
   openAuthModal: () => void;
   closeAuthModal: () => void;
@@ -131,8 +131,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuthModalOpen(false);
   };
 
-  const loginWithGoogle = async (email?: string, name?: string) => {
-    const data = await api.loginWithGoogle(email, name);
+  const loginWithGoogle = async (
+    email?: string,
+    name?: string,
+    picture?: string,
+    credential?: string
+  ) => {
+    const data = await api.loginWithGoogle(email, name, picture, credential);
     setTokenState(data.token);
     setUser(data.user);
     if (typeof window !== 'undefined') {

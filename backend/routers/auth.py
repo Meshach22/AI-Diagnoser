@@ -289,6 +289,7 @@ async def get_me(session: SessionInfo = Depends(get_current_session)):
             name=session.name,
             role=session.role,
             is_admin=session.is_admin,
+            picture=session.picture,
         ),
         is_authenticated=True,
     )
@@ -318,6 +319,8 @@ from pydantic import BaseModel
 class GoogleLoginRequest(BaseModel):
     email: Optional[str] = None
     name: Optional[str] = None
+    picture: Optional[str] = None
+    credential: Optional[str] = None
 
 
 @router.post("/google", response_model=LoginResponse, summary="Sign in or register with Google")
@@ -327,9 +330,35 @@ async def google_login(
     auth_service: AuthService = Depends(get_auth_service),
 ):
     """Authenticate or register user account with Google credentials and issue session cookie."""
-    email = req.email or "google.user@enterprise.ai"
-    name = req.name or "Google Workspace User"
-    token, info = auth_service.authenticate_or_create_google_user(email, name)
+    email = req.email
+    name = req.name
+    picture = req.picture
+
+    # If real Google ID token (credential) passed from Google Identity Services, decode claims
+    if req.credential:
+        try:
+            import base64
+            parts = req.credential.split(".")
+            if len(parts) >= 2:
+                payload_b64 = parts[1]
+                pad_len = 4 - (len(payload_b64) % 4)
+                if pad_len != 4:
+                    payload_b64 += "=" * pad_len
+                payload_json = base64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8")
+                payload_data = json.loads(payload_json)
+                if payload_data.get("email"):
+                    email = str(payload_data["email"])
+                if payload_data.get("name"):
+                    name = str(payload_data["name"])
+                if payload_data.get("picture"):
+                    picture = str(payload_data["picture"])
+        except Exception as exc:
+            logger.warning("Could not parse Google ID token claims: %s", exc)
+
+    email = email or "google.user@gmail.com"
+    name = name or email.split("@")[0].capitalize()
+
+    token, info = auth_service.authenticate_or_create_google_user(email, name, picture)
     response.set_cookie(
         key=settings.AUTH_COOKIE_NAME,
         value=token,
@@ -347,6 +376,7 @@ async def google_login(
             name=info.name,
             role=info.role,
             is_admin=info.is_admin,
+            picture=info.picture,
         ),
         expires_at=info.expires_at,
         idle_expires_at=info.idle_expires_at,

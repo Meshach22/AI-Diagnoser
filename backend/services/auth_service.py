@@ -67,6 +67,7 @@ class SessionInfo:
     created_at: float = 0.0
     expires_at: float = 0.0
     idle_expires_at: float = 0.0
+    picture: Optional[str] = None
 
     def public_user(self) -> Dict[str, object]:
         return {
@@ -75,6 +76,7 @@ class SessionInfo:
             "name": self.name,
             "role": self.role,
             "is_admin": self.is_admin,
+            "picture": self.picture,
         }
 
 
@@ -94,7 +96,8 @@ def _create_signed_token(
     is_admin: bool,
     created_at: float,
     expires_at: float,
-    secret_key: str
+    secret_key: str,
+    picture: Optional[str] = None
 ) -> str:
     """Create an HMAC-SHA256 authenticated persistent session token."""
     payload_data = {
@@ -105,6 +108,7 @@ def _create_signed_token(
         "adm": 1 if is_admin else 0,
         "ca": int(created_at),
         "exp": int(expires_at),
+        "pic": picture or "",
         "rnd": secrets.token_hex(8),
     }
     raw_json = json.dumps(payload_data, separators=(",", ":"))
@@ -137,6 +141,7 @@ def _verify_signed_token(token: str, secret_key: str, idle_timeout: float = 8640
         if now >= exp:
             return None
 
+        pic = str(data.get("pic", "")).strip() or None
         return SessionInfo(
             user_id=int(data.get("uid", 0)),
             email=str(data.get("em", "")),
@@ -146,6 +151,7 @@ def _verify_signed_token(token: str, secret_key: str, idle_timeout: float = 8640
             created_at=float(data.get("ca", now)),
             expires_at=exp,
             idle_expires_at=min(exp, now + idle_timeout),
+            picture=pic,
         )
     except Exception:
         return None
@@ -263,6 +269,8 @@ class AuthService:
             user_cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
             if "role" not in user_cols:
                 conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
+            if "picture" not in user_cols:
+                conn.execute("ALTER TABLE users ADD COLUMN picture TEXT")
             if "is_admin" not in user_cols:
                 conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
 
@@ -621,26 +629,49 @@ class AuthService:
         return True
 
     # ---------------------------------------------------- google auth
-    def authenticate_or_create_google_user(self, email: str, name: Optional[str] = None) -> tuple[str, SessionInfo]:
+    def authenticate_or_create_google_user(
+        self,
+        email: str,
+        name: Optional[str] = None,
+        picture: Optional[str] = None,
+    ) -> tuple[str, SessionInfo]:
         """Verify/create user via Google sign-in and issue active session."""
         norm_email = validate_email(email)
         clean_name = validate_name(name) if (name and name.strip()) else norm_email.split("@")[0].capitalize()
         with closing(self._connect()) as conn, conn:
-            row = conn.execute("SELECT id, email, name, role, is_admin, is_active FROM users WHERE email = ?", (norm_email,)).fetchone()
+            try:
+                conn.execute("ALTER TABLE users ADD COLUMN picture TEXT")
+            except Exception:
+                pass
+            row = conn.execute("SELECT id, email, name, role, is_admin, is_active, picture FROM users WHERE email = ?", (norm_email,)).fetchone()
             if not row:
                 random_pw = secrets.token_urlsafe(32)
                 pw_hash = self._ph.hash(random_pw)
                 cur = conn.execute(
-                    "INSERT INTO users (email, name, password_hash, role, is_admin, created_at) VALUES (?, ?, ?, 'user', 0, ?)",
-                    (norm_email, clean_name, pw_hash, self._now()),
+                    "INSERT INTO users (email, name, password_hash, role, is_admin, created_at, picture) VALUES (?, ?, ?, 'user', 0, ?, ?)",
+                    (norm_email, clean_name, pw_hash, self._now(), picture),
                 )
                 user_id = cur.lastrowid
-                row = conn.execute("SELECT id, email, name, role, is_admin, is_active FROM users WHERE id = ?", (user_id,)).fetchone()
+                row = conn.execute("SELECT id, email, name, role, is_admin, is_active, picture FROM users WHERE id = ?", (user_id,)).fetchone()
+            else:
+                updates = []
+                params = []
+                if picture and ("picture" not in row.keys() or picture != row["picture"]):
+                    updates.append("picture = ?")
+                    params.append(picture)
+                if clean_name and clean_name != row["name"] and clean_name != "Workspace Analyst":
+                    updates.append("name = ?")
+                    params.append(clean_name)
+                if updates:
+                    params.append(row["id"])
+                    conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", tuple(params))
+                    row = conn.execute("SELECT id, email, name, role, is_admin, is_active, picture FROM users WHERE id = ?", (row["id"],)).fetchone()
 
         now = self._now()
         expires_at = now + self.session_ttl
         user_role = row["role"] if "role" in row.keys() else "user"
         user_admin = bool(row["is_admin"]) if "is_admin" in row.keys() else False
+        user_pic = row["picture"] if "picture" in row.keys() else picture
 
         from backend.config import settings
         secret = settings.SECRET_KEY or "ai-diagnoser-production-super-secret-key-2026"
@@ -653,6 +684,7 @@ class AuthService:
             created_at=now,
             expires_at=expires_at,
             secret_key=secret,
+            picture=user_pic,
         )
         with closing(self._connect()) as conn, conn:
             conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, row["id"]))
@@ -660,9 +692,6 @@ class AuthService:
                 "INSERT INTO sessions (token_hash, user_id, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, ?)",
                 (_hash_token(token), row["id"], now, now, expires_at),
             )
-
-        user_role = row["role"] if "role" in row.keys() else "user"
-        user_admin = bool(row["is_admin"]) if "is_admin" in row.keys() else False
 
         info = SessionInfo(
             user_id=row["id"],
@@ -673,6 +702,7 @@ class AuthService:
             created_at=now,
             expires_at=expires_at,
             idle_expires_at=min(expires_at, now + self.session_idle),
+            picture=user_pic,
         )
         return token, info
 

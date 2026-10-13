@@ -1,7 +1,7 @@
 // frontend/src/components/workspaces/ChatWorkspace.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api, ChatResponse } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -58,6 +58,28 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [persistedDocs, setPersistedDocs] = useState<UploadedDocMeta[]>([]);
   const [activeDocContext, setActiveDocContext] = useState<UploadedDocMeta | null>(null);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = (instant: boolean = false) => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({
+        behavior: instant ? 'auto' : 'smooth',
+        block: 'end',
+      });
+    } else if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTo({
+        top: chatContainerRef.current.scrollHeight,
+        behavior: instant ? 'auto' : 'smooth',
+      });
+    }
+  };
+
+  // Automatically scroll to bottom whenever messages change or loading begins
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, loading]);
 
   // Auto-discover uploaded documents from persistent workspace memory
   useEffect(() => {
@@ -259,10 +281,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
       {/* Message Thread */}
       <div
-        className="card"
+        ref={chatContainerRef}
+        className="card chat-scroll-container"
         style={{
           flex: 1,
           overflowY: 'auto',
+          scrollBehavior: 'smooth',
           display: 'flex',
           flexDirection: 'column',
           gap: 16,
@@ -404,6 +428,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             <span>{error}</span>
           </div>
         )}
+
+        <div ref={messagesEndRef} style={{ height: 1 }} />
       </div>
 
       {/* Input Form */}

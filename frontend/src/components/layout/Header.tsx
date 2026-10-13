@@ -120,22 +120,37 @@ export const Header: React.FC = () => {
                 fontWeight: 600,
               }}
             >
-              <div
-                style={{
-                  width: 26,
-                  height: 26,
-                  borderRadius: '50%',
-                  background: 'var(--accent-red)',
-                  color: '#fff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '0.75rem',
-                }}
-              >
-                {user.name.charAt(0).toUpperCase()}
-              </div>
-              <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {user.picture ? (
+                <img
+                  src={user.picture}
+                  alt={user.name}
+                  referrerPolicy="no-referrer"
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: '50%',
+                    objectFit: 'cover',
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #4285F4 0%, #34A853 100%)',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                  }}
+                >
+                  {user.name.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <span style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={user.name}>
                 {user.name}
               </span>
               {user.is_admin && (

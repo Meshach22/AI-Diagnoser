@@ -6,6 +6,8 @@ export interface User {
   name: string;
   role: string;
   is_admin: boolean;
+  picture?: string;
+  avatar_url?: string;
 }
 
 export interface HealthStatus {
@@ -350,10 +352,15 @@ class ApiClient {
     }
   }
 
-  public async loginWithGoogle(email?: string, name?: string): Promise<{ token: string; user: User }> {
+  public async loginWithGoogle(
+    email?: string,
+    name?: string,
+    picture?: string,
+    credential?: string
+  ): Promise<{ token: string; user: User }> {
     const data = await this.request<{ token: string; user: User }>('/api/v1/auth/google', {
       method: 'POST',
-      body: JSON.stringify({ email, name }),
+      body: JSON.stringify({ email, name, picture, credential }),
     });
     this.setToken(data.token);
     return data;

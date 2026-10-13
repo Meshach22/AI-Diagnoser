@@ -13,6 +13,7 @@ class UserPublic(BaseModel):
     name: str
     role: str = "user"
     is_admin: bool = False
+    picture: Optional[str] = None
 
 
 class LoginRequest(BaseModel):

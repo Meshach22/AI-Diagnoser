@@ -1,6 +1,7 @@
 // frontend/src/app/layout.tsx
 import React from 'react';
 import type { Metadata } from 'next';
+import Script from 'next/script';
 import '@/styles/globals.css';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { AuthProvider } from '@/context/AuthContext';
@@ -18,6 +19,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" />
+      </head>
       <body>
         <ThemeProvider>
           <AuthProvider>

@@ -364,7 +364,14 @@ def _query_gemini(
     for idx, candidate in enumerate(model_candidates):
         try:
             logger.info("Attempting Gemini inference with candidate '%s'...", candidate)
-            model = genai.GenerativeModel(candidate, generation_config=gen_config)
+            try:
+                model = genai.GenerativeModel(
+                    candidate,
+                    generation_config=gen_config,
+                    system_instruction=ANALYST_SYSTEM_PROMPT
+                )
+            except Exception:
+                model = genai.GenerativeModel(candidate, generation_config=gen_config)
             if pil_image:
                 response = model.generate_content([prompt, pil_image], request_options=req_options)
             else:
