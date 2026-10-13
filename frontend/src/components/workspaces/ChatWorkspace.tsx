@@ -290,7 +290,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               }}
               className="animate-pulse"
             >
-              Consulting {provider} neural pipeline...
+              Consulting {selectedProvider} neural pipeline...
             </div>
           </div>
         )}
