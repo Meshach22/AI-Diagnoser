@@ -313,7 +313,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
     setSummaryType(type);
 
     try {
-      const res = await api.summarizeDocument(docText, type, 'Google Gemini', 'gemini-flash-latest');
+      const res = await api.summarizeDocument(docText, type, 'Google Gemini', 'gemini-3.8-flash');
       setSummary(res);
       persistMemory(uploadedDocs, messages, res, activeDocId, type);
     } catch (err: any) {
@@ -355,7 +355,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
         content: m.content,
       }));
 
-      const answer = await api.askDocument(docText, query, 'Google Gemini', historyPayload, 'gemini-flash-latest');
+      const answer = await api.askDocument(docText, query, 'Google Gemini', historyPayload, 'gemini-3.8-flash');
 
       const assistantMsg: ChatMessage = {
         id: `assistant-${Date.now()}`,

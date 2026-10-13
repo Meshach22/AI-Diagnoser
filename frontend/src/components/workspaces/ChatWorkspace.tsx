@@ -34,7 +34,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   activeContextText = '',
 }) => {
   const { user, openAuthModal } = useAuth();
-  const [provider, setProvider] = useState('Google Gemini');
+  const [selectedProvider, setSelectedProvider] = useState('Google Gemini');
+  const [selectedModel, setSelectedModel] = useState('gemini-3.8-flash');
   const [inputPrompt, setInputPrompt] = useState(initialPrompt);
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
@@ -74,7 +75,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       : userMsg.text;
 
     try {
-      const resp: ChatResponse = await api.queryRouter(promptToSend, provider);
+      const resp: ChatResponse = await api.queryRouter(
+        promptToSend,
+        selectedProvider,
+        selectedProvider === 'Google Gemini' ? (selectedModel || 'gemini-3.8-flash') : undefined
+      );
       const assistantMsg: Message = {
         id: (Date.now() + 1).toString(),
         sender: 'assistant',
@@ -125,11 +130,17 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           </label>
           <select
             className="select"
-            value={provider}
-            onChange={(e) => setProvider(e.target.value)}
+            value={selectedProvider}
+            onChange={(e) => {
+              const val = e.target.value;
+              setSelectedProvider(val);
+              if (val === 'Google Gemini') {
+                setSelectedModel('gemini-3.8-flash');
+              }
+            }}
             style={{ width: 'auto', padding: '6px 12px', fontSize: '0.85rem' }}
           >
-            <option value="Google Gemini">Google Gemini 2.5</option>
+            <option value="Google Gemini">Google Gemini 3.8 Flash</option>
             <option value="Groq">Groq LLaMA 3.3 (Fast)</option>
             <option value="OpenAI">OpenAI GPT-4o</option>
           </select>

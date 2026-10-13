@@ -62,6 +62,12 @@ class ChatService:
         if not prompt or not prompt.strip():
             raise ValueError("Query prompt string is required.")
 
+        # Ensure provider 'Google Gemini' routes directly to gemini-3.8-flash as active primary model
+        if provider in ("Google Gemini", "gemini", "gemini-3.8-flash"):
+            provider = "Google Gemini"
+            if not model_name:
+                model_name = "gemini-3.8-flash"
+
         try:
             result = query_llm(
                 prompt=prompt.strip(),

@@ -40,11 +40,18 @@ async def execute_query(
 ):
     """Delegates prompt execution across providers to ChatService."""
     try:
+        provider = req.provider
+        model_name = req.model_name
+        if provider in ("Google Gemini", "gemini", "gemini-3.8-flash"):
+            provider = "Google Gemini"
+            if not model_name:
+                model_name = "gemini-3.8-flash"
+
         data = await run_in_threadpool(
             ChatService.execute_query,
             prompt=req.prompt,
-            provider=req.provider,
-            model_name=req.model_name,
+            provider=provider,
+            model_name=model_name,
             api_key=req.api_key,
             image_data=req.image_base64,
         )

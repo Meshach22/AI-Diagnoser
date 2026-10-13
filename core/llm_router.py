@@ -329,7 +329,7 @@ def _query_gemini(
         genai.configure(api_key=resolved_key, transport="rest")
         _CACHED_GEMINI_KEY = resolved_key
 
-    raw_model = (model_name or "gemini-flash-latest").replace("models/", "").strip()
+    raw_model = (model_name or "gemini-3.8-flash").replace("models/", "").strip()
     clean_model_name = raw_model
 
     # Build clean candidate list: requested model first, then verified working flash models
@@ -337,8 +337,8 @@ def _query_gemini(
     if clean_model_name not in _UNAVAILABLE_GEMINI_MODELS:
         model_candidates.append(clean_model_name)
     fallback_pool = [
-        "gemini-flash-latest",
         "gemini-3.8-flash",
+        "gemini-flash-latest",
         "gemini-flash-lite-latest",
         "gemini-2.5-flash",
     ]
@@ -347,7 +347,7 @@ def _query_gemini(
             model_candidates.append(m)
 
     if not model_candidates:
-        model_candidates = ["gemini-flash-latest", "gemini-3.8-flash", "gemini-flash-lite-latest", "gemini-2.5-flash"]
+        model_candidates = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash"]
 
     # Allow up to 4 candidates so ultra-fast flash-lite fallback is reachable when 429 quota hits
     model_candidates = model_candidates[:4]
@@ -474,7 +474,7 @@ def _query_openai(
         if "insufficient_quota" in err_str or "credit_balance" in err_str or "402" in err_str or "quota" in err_str or "balance" in err_str:
             LAST_TELEMETRY["active_provider"] = "Google Gemini"
             LAST_TELEMETRY["failover_badge"] = "Primary Failed (OpenAI 402 Quota) -> Fallback: Gemini"
-            return _query_gemini(prompt=prompt, model_name="gemini-flash-latest", api_key=api_key, image_data=image_data)
+            return _query_gemini(prompt=prompt, model_name="gemini-3.8-flash", api_key=api_key, image_data=image_data)
 
         raise e
 
@@ -1276,7 +1276,7 @@ class LLMRouter:
         prompt: str,
         provider: str = "Google Gemini",
         image_data: Any = None,
-        model_name: Optional[str] = "gemini-3.5-flash",
+        model_name: Optional[str] = "gemini-3.8-flash",
         api_key: Optional[str] = None,
         **kwargs
     ) -> str:
@@ -1324,7 +1324,7 @@ class LLMRouter:
                         return res
                 elif candidate == "gemini":
                     cand_key = api_key if canonical == "gemini" else None
-                    cand_model = model_name if canonical == "gemini" and model_name else "gemini-flash-latest"
+                    cand_model = model_name if canonical == "gemini" and model_name else "gemini-3.8-flash"
                     res = _execute_with_timeout(
                         _query_gemini,
                         30.0,
@@ -1369,7 +1369,7 @@ class LLMRouter:
         cls,
         prompt: str,
         provider: str = "Google Gemini",
-        model_name: Optional[str] = "gemini-flash-latest",
+        model_name: Optional[str] = "gemini-3.8-flash",
         api_key: Optional[str] = None,
         **kwargs
     ) -> str:
@@ -1382,7 +1382,7 @@ class LLMRouter:
                     _query_gemini,
                     30.0,
                     prompt=prompt,
-                    model_name=model_name or "gemini-flash-latest",
+                    model_name=model_name or "gemini-3.8-flash",
                     api_key=api_key,
                     image_data=None
                 )
