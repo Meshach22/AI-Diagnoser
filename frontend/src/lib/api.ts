@@ -24,7 +24,10 @@ export interface ProviderInfo {
 
 export interface ChatResponse {
   result: string;
+  response?: string;
   provider: string;
+  active_provider?: string;
+  primary_provider?: string;
   model_name?: string;
   telemetry?: {
     latency_ms: number;
@@ -255,10 +258,9 @@ class ApiClient {
     error?: string;
   }> {
     const start = performance.now();
-    // In production without NEXT_PUBLIC_API_URL, route to relative /health which Next.js rewrites to the backend
-    const healthUrl = API_BASE ? `${API_BASE}/health` : '/health';
+    const healthUrl = API_BASE ? `${API_BASE}/api/v1/health` : '/api/v1/health';
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s health check budget
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     try {
       const res = await fetch(healthUrl, {
@@ -272,7 +274,14 @@ class ApiClient {
         const data = await res.json();
         return { ok: true, status: { ...data, latencyMs }, latencyMs, isWaking: false };
       }
-      // Expand waking status codes to include Cloudflare and gateway cold-start codes
+      if (res.status === 404) {
+        const altUrl = API_BASE ? `${API_BASE}/health` : '/health';
+        const altRes = await fetch(altUrl, { method: 'GET', cache: 'no-store' });
+        if (altRes.ok) {
+          const altData = await altRes.json();
+          return { ok: true, status: { ...altData, latencyMs }, latencyMs, isWaking: false };
+        }
+      }
       const isWaking = [502, 503, 504, 520, 521, 522, 523, 524].includes(res.status);
       return {
         ok: false,
@@ -281,12 +290,23 @@ class ApiClient {
         error: isWaking ? 'Server waking up (cold start)...' : `HTTP ${res.status}`,
       };
     } catch (err: any) {
+      try {
+        const altUrl = API_BASE ? `${API_BASE}/health` : '/health';
+        const altRes = await fetch(altUrl, { method: 'GET', cache: 'no-store' });
+        if (altRes.ok) {
+          const altData = await altRes.json();
+          const latencyMs = Math.round(performance.now() - start);
+          return { ok: true, status: { ...altData, latencyMs }, latencyMs, isWaking: false };
+        }
+      } catch {
+        // proceed
+      }
       const latencyMs = Math.round(performance.now() - start);
       const isTimeout = err.name === 'AbortError' || controller.signal.aborted;
       return {
         ok: false,
         latencyMs,
-        isWaking: true, // Network failure or timeout during health check indicates server is starting/waking
+        isWaking: true,
         error: isTimeout ? 'Service waking up (Render cold start)...' : 'Connecting to backend...',
       };
     } finally {
@@ -370,10 +390,24 @@ class ApiClient {
     provider: string = 'Google Gemini',
     modelName?: string
   ): Promise<ChatResponse> {
-    return this.request('/api/v1/router/query', {
+    const raw = await this.request<any>('/api/v1/router/query', {
       method: 'POST',
       body: JSON.stringify({ prompt, provider, model_name: modelName }),
     });
+    const text = raw.response || raw.result || '';
+    return {
+      result: text,
+      response: text,
+      provider: raw.active_provider || raw.primary_provider || provider,
+      active_provider: raw.active_provider || raw.primary_provider || provider,
+      primary_provider: raw.primary_provider || provider,
+      model_name: modelName,
+      telemetry: {
+        latency_ms: raw.latency_ms || 0,
+        tokens: raw.tokens || 0,
+        timestamp: Date.now(),
+      },
+    };
   }
 
   public async getTelemetry(): Promise<Record<string, any>> {

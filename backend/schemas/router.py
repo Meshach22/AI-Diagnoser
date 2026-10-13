@@ -19,6 +19,7 @@ class LLMQueryRequest(BaseModel):
 class LLMQueryResponse(BaseModel):
     """Unified LLM query output."""
     response: str
+    result: Optional[str] = None
     primary_provider: str
     active_provider: str
     latency_ms: float

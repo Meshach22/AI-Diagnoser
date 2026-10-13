@@ -77,8 +77,10 @@ class ChatService:
                 image_data=image_data,
             )
             telemetry = get_last_telemetry()
+            output_text = result or f"[{provider} Engine Error: No content returned from model cascade. Please check API keys in .env]"
             return {
-                "response": result,
+                "response": output_text,
+                "result": output_text,
                 "primary_provider": telemetry.get("primary_provider", provider),
                 "active_provider": telemetry.get("active_provider", provider),
                 "latency_ms": telemetry.get("latency_ms", 0.0),
@@ -87,7 +89,16 @@ class ChatService:
             }
         except Exception as exc:
             logger.error(f"Chat service query execution failed: {exc}")
-            raise RuntimeError(f"LLM routing execution error: {str(exc)}")
+            err_diag = f"[{provider} Engine Error: {type(exc).__name__}: {str(exc)} - please check API keys in .env]"
+            return {
+                "response": err_diag,
+                "result": err_diag,
+                "primary_provider": provider,
+                "active_provider": provider,
+                "latency_ms": 0.0,
+                "fallback_depth": 1,
+                "failover_badge": f"Failed: {type(exc).__name__}",
+            }
 
     @classmethod
     def get_telemetry(cls) -> Dict[str, Any]:

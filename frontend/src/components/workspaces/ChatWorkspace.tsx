@@ -101,9 +101,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     setLoading(true);
     setError(null);
 
-    // Resolve document context to inject for Gemini 3.8 Flash
-    let contextToInject = activeContextText;
-    if (!contextToInject && persistedDocs.length > 0) {
+    // Resolve document context to inject cleanly for Gemini 3.8 Flash
+    let promptToSend = userMsg.text;
+    let docToUse = activeDocContext;
+
+    if (persistedDocs.length > 0) {
       const q = userMsg.text.toLowerCase();
       // Match document if filename or base name is referenced in query (e.g. "Shalom resume.pdf", "resume")
       const matched = persistedDocs.find((d) => {
@@ -111,17 +113,22 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         const baseName = d.filename.toLowerCase().replace(/\.[^/.]+$/, '');
         return q.includes(d.filename.toLowerCase()) || (baseName.length >= 3 && q.includes(baseName));
       });
-
-      const docToUse = matched || activeDocContext || persistedDocs[0];
-      if (docToUse && docToUse.full_text) {
-        contextToInject = `Document: "${docToUse.filename}" (Pages: ${docToUse.page_count || 1}, Words: ${docToUse.word_count || 0})\nContent:\n${docToUse.full_text}`;
+      if (matched) {
+        docToUse = matched;
+      } else if (!docToUse) {
+        docToUse = persistedDocs[0];
       }
     }
 
-    // Combine user query with active document context (Gemini 3.8 Flash handles full context)
-    const promptToSend = contextToInject
-      ? `=== ACTIVE DOCUMENT CONTEXT ===\n${contextToInject.slice(0, 35000)}\n\n=== USER QUESTION ===\n${userMsg.text}`
-      : userMsg.text;
+    if (docToUse && (docToUse.full_text || docToUse.preview)) {
+      const docFilename = docToUse.filename || 'Uploaded Document';
+      const docRaw = docToUse.full_text || docToUse.preview || '';
+      const cappedDocText = docRaw.slice(0, 25000);
+      promptToSend = `System Context: The user has uploaded the following document: ${docFilename}\n---\n${cappedDocText}\n---\nUser Query: ${userMsg.text}`;
+    } else if (activeContextText && activeContextText.trim()) {
+      const cappedContext = activeContextText.trim().slice(0, 25000);
+      promptToSend = `System Context: The user has uploaded the following document: ${activeDocContext?.filename || 'Document Context'}\n---\n${cappedContext}\n---\nUser Query: ${userMsg.text}`;
+    }
 
     try {
       const resp: ChatResponse = await api.queryRouter(
@@ -129,11 +136,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         selectedProvider,
         selectedProvider === 'Google Gemini' ? (selectedModel || 'gemini-3.8-flash') : undefined
       );
+      const responseText = resp.result || resp.response;
       const assistantMsg: Message = {
         id: (Date.now() + 1).toString(),
         sender: 'assistant',
-        text: resp.result || 'No content returned from router.',
-        provider: resp.provider,
+        text: responseText || 'No content returned from router.',
+        provider: resp.active_provider || resp.provider,
         latencyMs: resp.telemetry?.latency_ms,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };

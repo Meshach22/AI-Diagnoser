@@ -162,7 +162,8 @@ async def root():
 async def health():
     """Health check endpoint used by Docker, Nginx, Vercel frontend, and external uptime monitors."""
     return {
-        "status": "healthy",
+        "status": "operational",
+        "engine": "FastAPI v2.4",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "version": settings.APP_VERSION,
         "default_provider": settings.DEFAULT_PROVIDER

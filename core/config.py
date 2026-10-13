@@ -42,7 +42,7 @@ FONT_PRESETS = {
 MODEL_CATALOG = {
     "Google Gemini": {
         "primary_model": "gemini-3.8-flash",
-        "models": ["gemini-3.8-flash", "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash"],
+        "models": ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-flash-latest"],
         "description": "Google's Gemini Flash multimodal intelligence.",
         "requires_api_key": True,
         "supports_vision": True

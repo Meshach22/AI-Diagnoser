@@ -70,7 +70,7 @@ export const Header: React.FC = () => {
           }}
           title={
             isOnline
-              ? `FastAPI core latency: ${latency}ms`
+              ? `FastAPI engine: operational (${latency ? `${latency}ms` : 'ready'})`
               : isWaking
                 ? 'Backend service is waking up (Render cold start)...'
                 : 'Backend offline or unreachable'
@@ -78,11 +78,17 @@ export const Header: React.FC = () => {
         >
           <span
             className={`status-dot ${isOnline ? '' : isWaking ? 'waking' : 'offline'}`}
-            style={isWaking ? { background: '#f59e0b', boxShadow: '0 0 6px rgba(245, 158, 11, 0.6)' } : undefined}
+            style={
+              isOnline
+                ? { background: '#10b981', boxShadow: '0 0 8px rgba(16, 185, 129, 0.6)' }
+                : isWaking
+                ? { background: '#f59e0b', boxShadow: '0 0 6px rgba(245, 158, 11, 0.6)' }
+                : { background: '#ef4444', boxShadow: '0 0 8px rgba(239, 68, 68, 0.5)' }
+            }
           />
-          <span style={{ color: 'var(--text-secondary)' }}>
+          <span style={{ color: isOnline ? '#10b981' : isWaking ? '#f59e0b' : 'var(--text-secondary)' }}>
             {isOnline
-              ? `Online ${latency ? `(${latency}ms)` : ''}`
+              ? `Operational ${latency ? `(${latency}ms)` : ''}`
               : isWaking
                 ? 'Connecting...'
                 : 'Offline'}

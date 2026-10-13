@@ -332,24 +332,24 @@ def _query_gemini(
     raw_model = (model_name or "gemini-3.8-flash").replace("models/", "").strip()
     clean_model_name = raw_model
 
-    # Build clean candidate list: requested model first, then verified working flash models
-    model_candidates = []
-    if clean_model_name not in _UNAVAILABLE_GEMINI_MODELS:
-        model_candidates.append(clean_model_name)
-    fallback_pool = [
+    priority_cascade = [
         "gemini-3.8-flash",
-        "gemini-flash-latest",
-        "gemini-flash-lite-latest",
         "gemini-2.5-flash",
+        "gemini-1.5-flash",
+        "gemini-flash-latest",
     ]
-    for m in fallback_pool:
+
+    model_candidates = []
+    if clean_model_name and clean_model_name not in _UNAVAILABLE_GEMINI_MODELS:
+        model_candidates.append(clean_model_name)
+    for m in priority_cascade:
         if m not in _UNAVAILABLE_GEMINI_MODELS and m not in model_candidates:
             model_candidates.append(m)
 
     if not model_candidates:
-        model_candidates = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash"]
+        model_candidates = list(priority_cascade)
 
-    # Allow up to 4 candidates so ultra-fast flash-lite fallback is reachable when 429 quota hits
+    # Try up to 4 models from the priority cascade
     model_candidates = model_candidates[:4]
 
     pil_image = _prepare_pil_image(image_data)
@@ -358,44 +358,63 @@ def _query_gemini(
 
     last_error = None
     gen_config = {"temperature": 0.1, "max_output_tokens": 2048}
-    req_options = {"timeout": 30.0}
+    req_options = {"timeout": 12.0}
 
     for idx, candidate in enumerate(model_candidates):
         try:
+            logger.info("Attempting Gemini inference with candidate '%s'...", candidate)
             model = genai.GenerativeModel(candidate, generation_config=gen_config)
             if pil_image:
                 response = model.generate_content([prompt, pil_image], request_options=req_options)
             else:
                 response = model.generate_content(prompt, request_options=req_options)
 
-            if response and hasattr(response, "text") and response.text:
-                return response.text
+            # Safely extract text across quick accessor and multi-part content
+            extracted_text = None
+            if response:
+                try:
+                    if hasattr(response, "text") and response.text:
+                        extracted_text = response.text.strip()
+                except Exception as text_err:
+                    logger.warning("Could not access response.text directly on candidate '%s': %s", candidate, text_err)
+
+                if not extracted_text and hasattr(response, "candidates") and response.candidates:
+                    first_cand = response.candidates[0]
+                    if hasattr(first_cand, "content") and hasattr(first_cand.content, "parts"):
+                        parts_text = "".join([getattr(p, "text", "") for p in first_cand.content.parts if getattr(p, "text", "")])
+                        if parts_text.strip():
+                            extracted_text = parts_text.strip()
+
+            if extracted_text:
+                LAST_TELEMETRY["active_provider"] = "Google Gemini"
+                return extracted_text
+
         except Exception as e:
             last_error = e
             err_msg = str(e).lower()
-            print(f"[GEMINI ERROR] Model '{candidate}' call failed: {type(e).__name__}: {e}", flush=True)
-            logger.error("Gemini model '%s' call failed: %s", candidate, e, exc_info=True)
-            if (
-                "404" in err_msg or "not found" in err_msg or "not available" in err_msg or
-                "is no longer available" in err_msg or "429" in err_msg or "quota" in err_msg or
-                "resourceexhausted" in err_msg
-            ):
-                _UNAVAILABLE_GEMINI_MODELS.add(candidate)
-            if "api_key_invalid" in err_msg or "invalid api key" in err_msg or "401" in err_msg or "403" in err_msg:
-                raise e
-            next_model = model_candidates[idx + 1] if idx + 1 < len(model_candidates) else "None"
+            print(f"[GEMINI WARNING] Model '{candidate}' failed: {type(e).__name__}: {e}", flush=True)
             logger.warning(
-                "Gemini model '%s' failed (%s); trying fallback to '%s'",
+                "Gemini candidate '%s' call failed (%s: %s). Cascading to next candidate...",
                 candidate,
                 type(e).__name__,
-                next_model
+                e
             )
+            # If 404 (not found), 400 (unsupported), or 429, mark unavailable and cascade
+            if (
+                "404" in err_msg or "not found" in err_msg or "not available" in err_msg or
+                "is no longer available" in err_msg or "400" in err_msg or "unsupported" in err_msg or
+                "429" in err_msg or "quota" in err_msg or "resourceexhausted" in err_msg
+            ):
+                _UNAVAILABLE_GEMINI_MODELS.add(candidate)
             continue
 
     if last_error:
-        print(f"[GEMINI ERROR] All Gemini candidate models failed. Last exception: {type(last_error).__name__}: {last_error}", flush=True)
-        raise last_error
-    raise RuntimeError("Empty response received from Gemini.")
+        diag = f"[Gemini Engine Error: {type(last_error).__name__}: {last_error} - please check GEMINI_API_KEY in .env]"
+        print(f"[GEMINI ERROR] All cascade models failed. Diagnostic: {diag}", flush=True)
+        logger.error("[GEMINI ERROR] All cascade models failed: %s", last_error)
+        return diag
+
+    return "[Gemini Engine Error: Empty response received from all Gemini cascade models. Please check GEMINI_API_KEY in .env]"
 
 
 # ---------------------------------------------------------------------------
@@ -1430,7 +1449,11 @@ class LLMRouter:
         except Exception as exc:
             print(f"[LLM ROUTER ERROR] Provider '{provider}' failed with exception: {type(exc).__name__}: {exc}", flush=True)
             logger.error(f"[LLM ROUTER ERROR] Provider '{provider}' failed with exception: {exc}", exc_info=True)
-            LAST_TELEMETRY["active_provider"] = "Offline Heuristics"
+            LAST_TELEMETRY["active_provider"] = "Google Gemini" if canonical == "gemini" else "Offline Heuristics"
+            if canonical == "gemini":
+                diag = f"[Gemini Engine Error: {type(exc).__name__}: {exc} - please check GEMINI_API_KEY in .env]"
+                LAST_TELEMETRY["failover_badge"] = f"Primary Diagnostic: {type(exc).__name__}"
+                return diag
             if isinstance(exc, (TimeoutError, concurrent.futures.TimeoutError)):
                 LAST_TELEMETRY["failover_badge"] = f"Primary Timeout (>12.0s on {provider}) -> Fallback: Offline Heuristics"
             else:
