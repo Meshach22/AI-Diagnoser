@@ -20,6 +20,7 @@ Design:
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import secrets
@@ -184,6 +185,11 @@ class AuthService:
                     created_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_reports_user ON reports(user_id);
+                CREATE TABLE IF NOT EXISTS user_workspace_memory (
+                    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                    memory_json TEXT NOT NULL,
+                    updated_at REAL NOT NULL
+                );
                 """
             )
             # Safe column migration for existing user tables
@@ -474,6 +480,77 @@ class AuthService:
                     (report_id, user_id),
                 )
             return cur.rowcount > 0
+
+    # --------------------------------------------------- workspace memory
+    def get_user_memory(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Retrieve persistent workspace memory for a user."""
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT memory_json FROM user_workspace_memory WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+            if row and row["memory_json"]:
+                try:
+                    return json.loads(row["memory_json"])
+                except Exception:
+                    return None
+        return None
+
+    def save_user_memory(self, user_id: int, memory_data: Dict[str, Any]) -> bool:
+        """Upsert persistent workspace memory for a user."""
+        now = self._now()
+        mem_json = json.dumps(memory_data)
+        with closing(self._connect()) as conn, conn:
+            conn.execute(
+                """INSERT INTO user_workspace_memory (user_id, memory_json, updated_at)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(user_id) DO UPDATE SET memory_json = excluded.memory_json, updated_at = excluded.updated_at""",
+                (user_id, mem_json, now),
+            )
+        return True
+
+    # ---------------------------------------------------- google auth
+    def authenticate_or_create_google_user(self, email: str, name: Optional[str] = None) -> tuple[str, SessionInfo]:
+        """Verify/create user via Google sign-in and issue active session."""
+        norm_email = validate_email(email)
+        clean_name = validate_name(name) if (name and name.strip()) else norm_email.split("@")[0].capitalize()
+        with closing(self._connect()) as conn, conn:
+            row = conn.execute("SELECT id, email, name, role, is_admin, is_active FROM users WHERE email = ?", (norm_email,)).fetchone()
+            if not row:
+                random_pw = secrets.token_urlsafe(32)
+                pw_hash = self._ph.hash(random_pw)
+                cur = conn.execute(
+                    "INSERT INTO users (email, name, password_hash, role, is_admin, created_at) VALUES (?, ?, ?, 'user', 0, ?)",
+                    (norm_email, clean_name, pw_hash, self._now()),
+                )
+                user_id = cur.lastrowid
+                row = conn.execute("SELECT id, email, name, role, is_admin, is_active FROM users WHERE id = ?", (user_id,)).fetchone()
+
+        now = self._now()
+        token = secrets.token_urlsafe(32)
+        expires_at = now + self.session_ttl
+        with closing(self._connect()) as conn, conn:
+            conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, row["id"]))
+            conn.execute(
+                "INSERT INTO sessions (token_hash, user_id, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+                (_hash_token(token), row["id"], now, now, expires_at),
+            )
+
+        user_role = row["role"] if "role" in row.keys() else "user"
+        user_admin = bool(row["is_admin"]) if "is_admin" in row.keys() else False
+
+        info = SessionInfo(
+            user_id=row["id"],
+            email=row["email"],
+            name=row["name"],
+            role=user_role,
+            is_admin=user_admin,
+            created_at=now,
+            expires_at=expires_at,
+            idle_expires_at=min(expires_at, now + self.session_idle),
+        )
+        return token, info
+
 
 
 _service: Optional[AuthService] = None

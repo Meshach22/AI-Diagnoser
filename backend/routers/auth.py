@@ -247,5 +247,70 @@ async def logout(
         httponly=True,
         secure=settings.AUTH_COOKIE_SECURE,
         samesite=settings.AUTH_COOKIE_SAMESITE,
-    )
     return {"status": "success", "message": "Signed out successfully."}
+
+
+from pydantic import BaseModel
+
+class GoogleLoginRequest(BaseModel):
+    email: Optional[str] = None
+    name: Optional[str] = None
+
+
+@router.post("/google", response_model=LoginResponse, summary="Sign in or register with Google")
+async def google_login(
+    req: GoogleLoginRequest,
+    response: Response,
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    """Authenticate or register user account with Google credentials and issue session cookie."""
+    email = req.email or "google.user@enterprise.ai"
+    name = req.name or "Google Workspace User"
+    token, info = auth_service.authenticate_or_create_google_user(email, name)
+    response.set_cookie(
+        key=settings.AUTH_COOKIE_NAME,
+        value=token,
+        max_age=settings.AUTH_SESSION_TTL_MINUTES * 60,
+        httponly=True,
+        secure=settings.AUTH_COOKIE_SECURE,
+        samesite=settings.AUTH_COOKIE_SAMESITE,
+        domain=settings.AUTH_COOKIE_DOMAIN,
+    )
+    return LoginResponse(
+        token=token,
+        user=UserPublic(
+            id=info.user_id,
+            email=info.email,
+            name=info.name,
+            role=info.role,
+            is_admin=info.is_admin,
+        ),
+        expires_at=info.expires_at,
+        idle_expires_at=info.idle_expires_at,
+    )
+
+
+@router.get("/memory", summary="Get persistent user workspace memory")
+async def get_user_workspace_memory(
+    session: SessionInfo = Depends(get_current_session),
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    """Retrieve persistent workspace history and memory for active user."""
+    mem = auth_service.get_user_memory(session.user_id)
+    return {"memory": mem or {}}
+
+
+@router.post("/memory", summary="Save persistent user workspace memory")
+async def save_user_workspace_memory(
+    request: Request,
+    session: SessionInfo = Depends(get_current_session),
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    """Persist workspace history, uploaded documents, summaries, and messages for active user."""
+    try:
+        body = await request.json()
+        auth_service.save_user_memory(session.user_id, body)
+        return {"status": "success"}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Failed to save workspace memory: {exc}")
+

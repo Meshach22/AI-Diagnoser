@@ -77,7 +77,7 @@ class BackendSettings(BaseSettings):
 
     # LLM Router Defaults (Gemini, OpenAI, Groq)
     DEFAULT_PROVIDER: str = "Google Gemini"
-    DEFAULT_MODEL_GEMINI: str = "gemini-3.8-flash"
+    DEFAULT_MODEL_GEMINI: str = "gemini-flash-latest"
     DEFAULT_MODEL_OPENAI: str = "gpt-4o-mini"
     DEFAULT_MODEL_GROQ: str = "llama-3.3-70b-versatile"
 

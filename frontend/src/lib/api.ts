@@ -319,6 +319,35 @@ class ApiClient {
     }
   }
 
+  public async loginWithGoogle(email?: string, name?: string): Promise<{ token: string; user: User }> {
+    const data = await this.request<{ token: string; user: User }>('/api/v1/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ email, name }),
+    });
+    this.setToken(data.token);
+    return data;
+  }
+
+  public async getWorkspaceMemory(): Promise<any> {
+    try {
+      const res = await this.request<{ memory: any }>('/api/v1/auth/memory');
+      return res?.memory || null;
+    } catch {
+      return null;
+    }
+  }
+
+  public async saveWorkspaceMemory(memory: any): Promise<void> {
+    try {
+      await this.request('/api/v1/auth/memory', {
+        method: 'POST',
+        body: JSON.stringify(memory),
+      });
+    } catch {
+      // background sync catch
+    }
+  }
+
   // --- AI Router & Chat ---
   public async getProviders(): Promise<ProviderInfo[]> {
     const data = await this.request<{ providers: ProviderInfo[] }>('/api/v1/router/providers');

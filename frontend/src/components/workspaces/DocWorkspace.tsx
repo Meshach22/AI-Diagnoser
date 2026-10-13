@@ -17,7 +17,21 @@ import {
   Send,
   Trash2,
   User,
+  Plus,
+  Layers,
+  FileCheck,
+  Clock,
 } from 'lucide-react';
+
+export interface UploadedDoc {
+  id: string;
+  filename: string;
+  full_text: string;
+  word_count: number;
+  page_count: number;
+  format: string;
+  uploadedAt: string;
+}
 
 export interface ChatMessage {
   id: string;
@@ -32,44 +46,184 @@ interface DocWorkspaceProps {
 
 export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }) => {
   const { user, openAuthModal } = useAuth();
-  const [file, setFile] = useState<File | null>(initialFile);
-  const [parsed, setParsed] = useState<DocumentParseResult | null>(null);
+  const [uploadedDocs, setUploadedDocs] = useState<UploadedDoc[]>([]);
+  const [activeDocId, setActiveDocId] = useState<string | 'all'>('all');
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryType, setSummaryType] = useState<string>('executive');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState<boolean>(false);
   const [docQuestion, setDocQuestion] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
-  const [loadingMessage, setLoadingMessage] = useState<string>('Extracting document structure, pages, and textual content...');
+  const [loadingMessage, setLoadingMessage] = useState<string>('Analyzing document intelligence...');
   const [error, setError] = useState<string | null>(null);
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Track the exact File instance that was last ingested to prevent effect loops and duplicate processing
+  // Track ingested file to prevent duplicate processing
   const processedFileRef = useRef<File | null>(null);
 
-  // Ingestion executor
-  const executeIngestion = useCallback(async (targetFile: File) => {
-    setLoading(true);
-    setLoadingMessage('Extracting document structure, pages, and textual content...');
-    setError(null);
-    setParsed(null);
-    setSummary(null);
-    setMessages([]);
-    setDocQuestion('');
+  // Helper: Memory persistence key
+  const getMemoryKey = useCallback(() => {
+    return user?.email ? `ai_diagnoser_memory_${user.email}` : 'ai_diagnoser_memory_guest';
+  }, [user?.email]);
 
-    try {
-      const res = await api.parseDocument(targetFile);
-      setParsed(res);
-    } catch (err: any) {
-      setError(err.message || 'Failed to process document.');
-      // Allow retry if this specific run failed
-      processedFileRef.current = null;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // Save workspace memory to localStorage and backend
+  const persistMemory = useCallback(
+    (
+      docsToSave: UploadedDoc[],
+      msgsToSave: ChatMessage[],
+      summaryToSave: string | null,
+      activeIdToSave: string | 'all',
+      typeToSave: string
+    ) => {
+      if (typeof window === 'undefined') return;
+      const memKey = getMemoryKey();
+      const memoryPayload = {
+        uploadedDocs: docsToSave,
+        messages: msgsToSave,
+        summary: summaryToSave,
+        activeDocId: activeIdToSave,
+        summaryType: typeToSave,
+        updatedAt: new Date().toISOString(),
+      };
+
+      try {
+        localStorage.setItem(memKey, JSON.stringify(memoryPayload));
+      } catch (err) {
+        console.warn('Failed to save to localStorage:', err);
+      }
+
+      // Sync to backend if authenticated
+      if (user) {
+        api.saveWorkspaceMemory(memoryPayload).catch(() => {});
+      }
+    },
+    [getMemoryKey, user]
+  );
+
+  // Restore memory on user sign-in or initial mount
+  useEffect(() => {
+    let isMounted = true;
+
+    const restoreMemory = async () => {
+      if (typeof window === 'undefined') return;
+      const memKey = getMemoryKey();
+      let restoredData: any = null;
+
+      // 1. Try local storage first for instant load
+      try {
+        const localRaw = localStorage.getItem(memKey);
+        if (localRaw) {
+          restoredData = JSON.parse(localRaw);
+        }
+      } catch {
+        // ignore
+      }
+
+      // 2. If authenticated, fetch latest from backend
+      if (user) {
+        try {
+          const backendMem = await api.getWorkspaceMemory();
+          if (backendMem && Array.isArray(backendMem.uploadedDocs) && backendMem.uploadedDocs.length > 0) {
+            restoredData = backendMem;
+            localStorage.setItem(memKey, JSON.stringify(backendMem));
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (isMounted && restoredData && Array.isArray(restoredData.uploadedDocs) && restoredData.uploadedDocs.length > 0) {
+        setUploadedDocs(restoredData.uploadedDocs);
+        setActiveDocId(restoredData.activeDocId || 'all');
+        if (Array.isArray(restoredData.messages)) {
+          setMessages(restoredData.messages);
+        }
+        if (restoredData.summary) {
+          setSummary(restoredData.summary);
+        }
+        if (restoredData.summaryType) {
+          setSummaryType(restoredData.summaryType);
+        }
+      }
+    };
+
+    restoreMemory();
+    return () => {
+      isMounted = false;
+    };
+  }, [user, getMemoryKey]);
+
+  // Execute document ingestion and append to uploadedDocs
+  const executeIngestion = useCallback(
+    async (targetFile: File) => {
+      setLoading(true);
+      setLoadingMessage(`Extracting textual structure & tables from "${targetFile.name}"...`);
+      setError(null);
+
+      try {
+        const res: DocumentParseResult = await api.parseDocument(targetFile);
+        const fullText = (res.full_text || res.preview || '').trim();
+        const wordCount = res.word_count || (fullText ? fullText.split(/\s+/).length : 0);
+        const pageCount = res.page_count || 1;
+        const format = (res.file_type || targetFile.name.split('.').pop() || 'TXT').toUpperCase();
+
+        const newDoc: UploadedDoc = {
+          id: `doc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          filename: targetFile.name,
+          full_text: fullText,
+          word_count: wordCount,
+          page_count: pageCount,
+          format,
+          uploadedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        };
+
+        setUploadedDocs((prevDocs) => {
+          // Replace document with same filename if re-uploaded, else append
+          const filtered = prevDocs.filter((d) => d.filename !== targetFile.name);
+          const updated = [...filtered, newDoc];
+          const newActiveId = updated.length > 1 ? 'all' : newDoc.id;
+          setActiveDocId(newActiveId);
+
+          persistMemory(updated, messages, summary, newActiveId, summaryType);
+
+          // Update upload history for HomeWorkspace & Sidebar
+          if (typeof window !== 'undefined') {
+            try {
+              const k = 1024;
+              const sizes = ['B', 'KB', 'MB', 'GB'];
+              const i = targetFile.size > 0 ? Math.floor(Math.log(targetFile.size) / Math.log(k)) : 0;
+              const formattedSize =
+                targetFile.size > 0 ? parseFloat((targetFile.size / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i] : '0 B';
+              const newItem = {
+                name: targetFile.name,
+                type: 'document' as const,
+                time: 'Just now',
+                size: formattedSize,
+                status: 'Uploaded',
+              };
+              const stored = localStorage.getItem('ai_diagnoser_upload_history');
+              const existing = stored ? JSON.parse(stored) : [];
+              const updatedHistory = [newItem, ...existing.filter((item: any) => item.name !== targetFile.name)].slice(0, 10);
+              localStorage.setItem('ai_diagnoser_upload_history', JSON.stringify(updatedHistory));
+            } catch {
+              // ignore
+            }
+          }
+
+          return updated;
+        });
+      } catch (err: any) {
+        setError(err.message || `Failed to process document "${targetFile.name}".`);
+        processedFileRef.current = null;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [messages, persistMemory, summary, summaryType]
+  );
 
   // Auto-scroll chat feed to newest message
   useEffect(() => {
@@ -78,52 +232,23 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
     }
   }, [messages, chatLoading]);
 
-  // Synchronize incoming initialFile from props (e.g., when selected from HomeWorkspace)
+  // Handle incoming initialFile from props (e.g., from HomeWorkspace)
   useEffect(() => {
-    if (initialFile && initialFile !== file) {
-      setFile(initialFile);
+    if (!initialFile) return;
+    if (processedFileRef.current === initialFile) return;
+
+    if (!user) {
+      // If unauthenticated, prompt login
+      openAuthModal();
+      return;
     }
-  }, [initialFile, file]);
 
-  // Trigger ingestion exactly once per new file when authenticated
-  useEffect(() => {
-    const activeFile = initialFile || file;
-    if (!activeFile) return;
+    processedFileRef.current = initialFile;
+    executeIngestion(initialFile);
+  }, [initialFile, user, executeIngestion, openAuthModal]);
 
-    // Already processed this file instance or currently loading
-    if (processedFileRef.current === activeFile) return;
-
-    // Authentication guard: if unauthenticated, retain file in state and wait for login
-    if (!user) return;
-
-    processedFileRef.current = activeFile;
-    executeIngestion(activeFile);
-  }, [initialFile, file, user, executeIngestion]);
-
-  // Handler for manual file upload / replacement inside the workspace
-  const handleManualUpload = (selectedFile: File) => {
-    setFile(selectedFile);
-    if (typeof window !== 'undefined') {
-      try {
-        const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB'];
-        const i = selectedFile.size > 0 ? Math.floor(Math.log(selectedFile.size) / Math.log(k)) : 0;
-        const formattedSize = selectedFile.size > 0 ? parseFloat((selectedFile.size / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i] : '0 B';
-        const newItem = {
-          name: selectedFile.name,
-          type: 'document' as const,
-          time: 'Just now',
-          size: formattedSize,
-          status: 'Uploaded',
-        };
-        const stored = localStorage.getItem('ai_diagnoser_upload_history');
-        const existing = stored ? JSON.parse(stored) : [];
-        const updated = [newItem, ...existing.filter((item: any) => item.name !== selectedFile.name)].slice(0, 10);
-        localStorage.setItem('ai_diagnoser_upload_history', JSON.stringify(updated));
-      } catch {
-        // ignore
-      }
-    }
+  // Handle file uploads (both new doc and add doc)
+  const handleFileUpload = (selectedFile: File) => {
     if (!user) {
       openAuthModal();
       return;
@@ -132,15 +257,65 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
     executeIngestion(selectedFile);
   };
 
+  // Remove an uploaded document
+  const handleRemoveDoc = (docId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setUploadedDocs((prevDocs) => {
+      const remaining = prevDocs.filter((d) => d.id !== docId);
+      const nextActiveId = remaining.length === 0 ? 'all' : activeDocId === docId ? (remaining.length > 1 ? 'all' : remaining[0].id) : activeDocId;
+      setActiveDocId(nextActiveId);
+      persistMemory(remaining, messages, summary, nextActiveId, summaryType);
+      return remaining;
+    });
+  };
+
+  // Compute active document text context
+  const getContextForAnalysis = useCallback((): { text: string; label: string; docCount: number } => {
+    if (uploadedDocs.length === 0) {
+      return { text: '', label: 'No documents', docCount: 0 };
+    }
+
+    if (activeDocId === 'all' || uploadedDocs.length === 1) {
+      if (uploadedDocs.length === 1) {
+        return {
+          text: uploadedDocs[0].full_text,
+          label: uploadedDocs[0].filename,
+          docCount: 1,
+        };
+      }
+      // Combine multiple documents with explicit labels
+      const combined = uploadedDocs
+        .map((doc, idx) => {
+          return `=== Document ${idx + 1}: ${doc.filename} (Format: ${doc.format}, Pages: ${doc.page_count}, Words: ${doc.word_count}) ===\n${doc.full_text}`;
+        })
+        .join('\n\n----------------------------------------\n\n');
+      return {
+        text: combined,
+        label: `All ${uploadedDocs.length} Documents Combined`,
+        docCount: uploadedDocs.length,
+      };
+    }
+
+    const selected = uploadedDocs.find((d) => d.id === activeDocId) || uploadedDocs[0];
+    return {
+      text: selected.full_text,
+      label: selected.filename,
+      docCount: 1,
+    };
+  }, [activeDocId, uploadedDocs]);
+
+  // Summarize documents
   const handleSummarize = async (type: string) => {
-    const docText = parsed?.preview || parsed?.full_text;
+    const { text: docText, label } = getContextForAnalysis();
     if (!docText || !user) return;
     setLoading(true);
-    setLoadingMessage('Synthesizing executive insights with Gemini 3.8 Flash...');
+    setLoadingMessage(`Synthesizing ${type.replace('_', ' ')} across "${label}"...`);
     setSummaryType(type);
+
     try {
-      const res = await api.summarizeDocument(docText, type);
+      const res = await api.summarizeDocument(docText, type, 'Google Gemini', 'gemini-flash-latest');
       setSummary(res);
+      persistMemory(uploadedDocs, messages, res, activeDocId, type);
     } catch (err: any) {
       setError(err.message || 'Failed to generate summary.');
     } finally {
@@ -148,15 +323,18 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
     }
   };
 
+  // Clear Chat conversation
   const handleClearChat = () => {
     setMessages([]);
     setDocQuestion('');
+    persistMemory(uploadedDocs, [], summary, activeDocId, summaryType);
     chatInputRef.current?.focus();
   };
 
+  // Send query to AI Chat Assistant
   const handleSendChat = async (promptOverride?: string) => {
     const query = (promptOverride || docQuestion).trim();
-    const docText = parsed?.preview || parsed?.full_text;
+    const { text: docText } = getContextForAnalysis();
     if (!query || !docText || !user || chatLoading) return;
 
     const userMsg: ChatMessage = {
@@ -172,13 +350,12 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
     setChatLoading(true);
 
     try {
-      // Pass previous turns as history payload
       const historyPayload = messages.map((m) => ({
         role: m.role,
         content: m.content,
       }));
 
-      const answer = await api.askDocument(docText, query, 'Google Gemini', historyPayload);
+      const answer = await api.askDocument(docText, query, 'Google Gemini', historyPayload, 'gemini-flash-latest');
 
       const assistantMsg: ChatMessage = {
         id: `assistant-${Date.now()}`,
@@ -187,7 +364,9 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
 
-      setMessages([...currentThread, assistantMsg]);
+      const finalThread = [...currentThread, assistantMsg];
+      setMessages(finalThread);
+      persistMemory(uploadedDocs, finalThread, summary, activeDocId, summaryType);
     } catch (err: any) {
       const errorMsg: ChatMessage = {
         id: `err-${Date.now()}`,
@@ -195,7 +374,9 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
         content: `⚠️ Failed to get answer: ${err.message || 'Error communicating with model.'}`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
-      setMessages([...currentThread, errorMsg]);
+      const finalThread = [...currentThread, errorMsg];
+      setMessages(finalThread);
+      persistMemory(uploadedDocs, finalThread, summary, activeDocId, summaryType);
     } finally {
       setChatLoading(false);
     }
@@ -295,44 +476,173 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
     );
   };
 
-  const docTextAvailable = Boolean((parsed?.preview || parsed?.full_text)?.trim());
+  const { text: activeContextText, label: activeLabel, docCount: activeDocCount } = getContextForAnalysis();
+  const docTextAvailable = Boolean(activeContextText.trim());
+
+  // Aggregate metrics
+  const totalPages = uploadedDocs.reduce((acc, d) => acc + d.page_count, 0);
+  const totalWords = uploadedDocs.reduce((acc, d) => acc + d.word_count, 0);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {/* Upload Header */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* Upload Header Card */}
       <div className="card" style={{ padding: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div className="brand-icon-box" style={{ width: 40, height: 40 }}>
-              <FileText size={20} />
+            <div className="brand-icon-box" style={{ width: 42, height: 42 }}>
+              <Layers size={22} />
             </div>
             <div>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                {file ? file.name : 'Document Intelligence & Synthesis'}
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                Document Intelligence &amp; Multi-File Analysis
               </h3>
               <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                {file
-                  ? `${(file.size / 1024).toFixed(1)} KB • Structural text & page extraction`
-                  : 'Upload PDF, Word (DOCX), or Plaintext corporate reports'}
+                {uploadedDocs.length > 0
+                  ? `${uploadedDocs.length} document${uploadedDocs.length > 1 ? 's' : ''} loaded • Cross-document reasoning & persistent synthesis`
+                  : 'Upload PDF, Word (DOCX), or Plaintext corporate reports to analyze'}
               </p>
             </div>
           </div>
 
-          <label className="btn btn-outline" style={{ cursor: 'pointer' }}>
-            <Upload size={15} />
-            <span>{file ? 'Replace Document' : 'Upload Document'}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {/* Hidden file input */}
             <input
+              ref={fileInputRef}
               type="file"
               style={{ display: 'none' }}
               accept=".pdf,.docx,.txt"
-              onChange={(e) => e.target.files?.[0] && handleManualUpload(e.target.files[0])}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleFileUpload(f);
+                if (e.target) e.target.value = '';
+              }}
             />
-          </label>
+
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => fileInputRef.current?.click()}
+              style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+            >
+              {uploadedDocs.length > 0 ? <Plus size={16} /> : <Upload size={16} />}
+              <span>{uploadedDocs.length > 0 ? 'Add Document' : 'Upload Document'}</span>
+            </button>
+          </div>
         </div>
+
+        {/* Multi-Document Selectable Chips / Cards */}
+        {uploadedDocs.length > 0 && (
+          <div
+            style={{
+              marginTop: 18,
+              paddingTop: 16,
+              borderTop: '1px solid var(--border-soft)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.04em' }}>
+                Active Document Scope
+              </span>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                Currently analyzing: <strong>{activeLabel}</strong>
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              {/* Option to view/analyze all documents together */}
+              <button
+                type="button"
+                onClick={() => setActiveDocId('all')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '7px 14px',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  border: activeDocId === 'all' ? '2px solid var(--accent-red)' : '1px solid var(--border-medium)',
+                  background: activeDocId === 'all' ? 'var(--accent-red-subtle)' : 'var(--bg-elevated)',
+                  color: activeDocId === 'all' ? 'var(--accent-red)' : 'var(--text-primary)',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <Layers size={15} />
+                <span>All Uploaded Documents</span>
+                <span
+                  style={{
+                    fontSize: '0.74rem',
+                    padding: '1px 6px',
+                    borderRadius: 10,
+                    background: activeDocId === 'all' ? 'var(--accent-red)' : 'var(--bg-subtle)',
+                    color: activeDocId === 'all' ? '#FFFFFF' : 'var(--text-muted)',
+                  }}
+                >
+                  {uploadedDocs.length}
+                </span>
+              </button>
+
+              {/* Individual Document Chips */}
+              {uploadedDocs.map((d) => {
+                const isActive = activeDocId === d.id;
+                return (
+                  <div
+                    key={d.id}
+                    onClick={() => setActiveDocId(d.id)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '7px 12px',
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: '0.85rem',
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      border: isActive ? '2px solid var(--accent-red)' : '1px solid var(--border-medium)',
+                      background: isActive ? 'var(--accent-red-subtle)' : 'var(--bg-elevated)',
+                      color: isActive ? 'var(--accent-red)' : 'var(--text-primary)',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <FileText size={14} />
+                    <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.filename}>
+                      {d.filename}
+                    </span>
+                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                      ({d.page_count}p)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => handleRemoveDoc(d.id, e)}
+                      title="Remove document"
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '2px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        color: 'var(--text-muted)',
+                      }}
+                      onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = 'var(--accent-red)')}
+                      onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = 'var(--text-muted)')}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Unauthenticated Notification */}
-      {!user && file && (
+      {!user && uploadedDocs.length > 0 && (
         <div className="card" style={{ padding: 24, textAlign: 'center', background: 'var(--bg-subtle)' }}>
           <div style={{ maxWidth: 440, margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
             <Lock size={26} style={{ color: 'var(--accent-red)' }} />
@@ -340,10 +650,10 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
               Authentication Required
             </h4>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              Sign in or register to extract structured text, generate executive summaries, and query document contents.
+              Sign in or register to enable AI cross-document reasoning, multi-turn memory, and executive summaries.
             </p>
             <button className="btn btn-primary" onClick={openAuthModal}>
-              Sign In to Analyze Document
+              Sign In to Analyze Documents
             </button>
           </div>
         </div>
@@ -351,22 +661,28 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
 
       {/* Error Banner with Retry */}
       {error && (
-        <div style={{ padding: '14px 18px', background: 'rgba(239, 68, 68, 0.12)', color: 'var(--accent-red)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(239, 68, 68, 0.25)', fontSize: '0.85rem' }}>
+        <div
+          style={{
+            padding: '14px 18px',
+            background: 'rgba(239, 68, 68, 0.12)',
+            color: 'var(--accent-red)',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid rgba(239, 68, 68, 0.25)',
+            fontSize: '0.85rem',
+          }}
+        >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
             <span>{error}</span>
-            {file && user && (
-              <button
-                className="btn btn-outline btn-sm"
-                onClick={() => {
-                  processedFileRef.current = null;
-                  executeIngestion(file);
-                }}
-                disabled={loading}
-              >
-                <RefreshCw size={13} />
-                <span>Retry Analysis</span>
-              </button>
-            )}
+            <button
+              className="btn btn-outline btn-sm"
+              onClick={() => {
+                setError(null);
+                if (fileInputRef.current) fileInputRef.current.click();
+              }}
+            >
+              <RefreshCw size={13} />
+              <span>Retry / Re-upload</span>
+            </button>
           </div>
         </div>
       )}
@@ -378,55 +694,62 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
         </div>
       )}
 
-      {/* Scanned PDF Warning (when no extractable text is present) */}
-      {parsed && !loading && !docTextAvailable && (
-        <div className="card" style={{ padding: 18, background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: 'var(--radius-md)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#d97706', fontWeight: 600 }}>
-            <AlertTriangle size={18} />
-            <span>No Extractable Text Detected (Scanned PDF)</span>
-          </div>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.5 }}>
-            This document appears to contain rasterized/scanned images without embedded digital text. Optical Character Recognition (OCR) is not currently implemented; please upload a digitally generated PDF, Microsoft Word (.docx), or plain text file to enable AI summarization and Q&amp;A.
-          </p>
-        </div>
-      )}
-
-      {parsed && !loading && (
+      {uploadedDocs.length > 0 && !loading && (
         <>
           {/* Document Metrics */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
             <div className="card" style={{ padding: 18 }}>
-              <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Format</div>
-              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 4 }}>
-                {parsed.file_type.toUpperCase()}
+              <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Scope</div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 4 }}>
+                {activeDocId === 'all' ? `${uploadedDocs.length} Documents` : 'Single File'}
               </div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>Parsed file type</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                {activeDocId === 'all' ? 'Cross-document reasoning' : activeLabel}
+              </div>
             </div>
 
             <div className="card" style={{ padding: 18 }}>
-              <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Page Count</div>
-              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 4 }}>
-                {parsed.page_count}
+              <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Pages</div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 4 }}>
+                {activeDocId === 'all'
+                  ? totalPages
+                  : (uploadedDocs.find((d) => d.id === activeDocId)?.page_count || 1)}
               </div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>Rendered pages</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>Extracted pages</div>
             </div>
 
             <div className="card" style={{ padding: 18 }}>
               <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Word Count</div>
-              <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 4 }}>
-                {parsed.word_count.toLocaleString()}
+              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 4 }}>
+                {activeDocId === 'all'
+                  ? totalWords.toLocaleString()
+                  : (uploadedDocs.find((d) => d.id === activeDocId)?.word_count || 0).toLocaleString()}
               </div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                {(parsed.character_count ?? parsed.char_count ?? 0).toLocaleString()} characters
-              </div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>Tokens parsed</div>
             </div>
           </div>
 
           {/* Quick Action Summarization Buttons */}
           <div className="card" style={{ padding: 20 }}>
-            <div style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: 12, color: 'var(--text-primary)' }}>
-              Executive AI Summarization Actions
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                Executive AI Summarization Actions ({activeLabel})
+              </div>
+              {summary && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    setSummary(null);
+                    persistMemory(uploadedDocs, messages, null, activeDocId, summaryType);
+                  }}
+                  style={{ fontSize: '0.78rem' }}
+                >
+                  Clear Summary
+                </button>
+              )}
             </div>
+
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
               <button
                 className={`btn ${summaryType === 'executive' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
@@ -450,7 +773,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                 disabled={!docTextAvailable || loading}
               >
                 <CheckCircle size={14} />
-                <span>Action Items & Risks</span>
+                <span>Action Items &amp; Risks</span>
               </button>
             </div>
 
@@ -458,7 +781,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
               <div
                 style={{
                   marginTop: 18,
-                  padding: 16,
+                  padding: 18,
                   borderRadius: 'var(--radius-md)',
                   background: 'var(--bg-subtle)',
                   border: '1px solid var(--border-soft)',
@@ -469,14 +792,14 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
               >
                 <div style={{ fontWeight: 700, color: 'var(--accent-red)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                   <Sparkles size={16} />
-                  <span>Synthesized {summaryType.replace('_', ' ').toUpperCase()}</span>
+                  <span>Synthesized {summaryType.replace('_', ' ').toUpperCase()} ({activeLabel})</span>
                 </div>
                 {summary}
               </div>
             )}
           </div>
 
-          {/* NotebookLM-Style Multi-Turn Document Chat */}
+          {/* AI Chat Assistant with Cross-Document Reasoning */}
           <div className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
             {/* Thread Header */}
             <div
@@ -492,20 +815,32 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div className="brand-icon-box" style={{ width: 34, height: 34 }}>
-                  <Sparkles size={17} />
+                <div className="brand-icon-box" style={{ width: 36, height: 36 }}>
+                  <Sparkles size={18} />
                 </div>
                 <div>
-                  <h4 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
-                    NotebookLM Document Companion
+                  <h4 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+                    AI Chat Assistant
                   </h4>
                   <p style={{ fontSize: '0.78rem', margin: 0, color: 'var(--text-secondary)' }}>
-                    Grounded conversational analysis with multi-turn memory
+                    Intelligent document reasoning &amp; conversational memory
                   </p>
                 </div>
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span
+                  style={{
+                    fontSize: '0.75rem',
+                    padding: '4px 10px',
+                    borderRadius: 12,
+                    background: 'var(--bg-elevated)',
+                    border: '1px solid var(--border-soft)',
+                    color: 'var(--text-secondary)',
+                  }}
+                >
+                  Scope: <strong>{activeLabel}</strong>
+                </span>
                 {messages.length > 0 && (
                   <button
                     type="button"
@@ -536,22 +871,22 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
               }}
             >
               {messages.length === 0 ? (
-                <div style={{ textAlign: 'center', margin: 'auto', padding: '32px 16px', maxWidth: 540 }}>
+                <div style={{ textAlign: 'center', margin: 'auto', padding: '32px 16px', maxWidth: 560 }}>
                   <HelpCircle size={36} style={{ margin: '0 auto 12px', color: 'var(--accent-red)', opacity: 0.8 }} />
                   <h5 style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
-                    Ask Anything Grounded in This Document
+                    Ask Anything Across Your Documents
                   </h5>
                   <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.5 }}>
-                    Engage in a continuous multi-turn dialogue. Ask proportional questions, request clarifications, or drill into specific projects and metrics.
+                    The AI Chat Assistant reasons intelligently across your active documents, connecting related concepts, analyzing impact, and recalling multi-turn context.
                   </p>
 
                   {/* Starter Chips */}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
                     {[
-                      'What is in this document?',
-                      'What are the core technical projects and impact?',
-                      'What is his primary educational background?',
-                      'Summarize key strengths in 3 bullet points',
+                      'What are the primary findings and core subjects?',
+                      'Compare and synthesize key takeaways across documents',
+                      'What are the core technical projects, skills, and impact?',
+                      'Summarize actionable recommendations in 3 bullet points',
                     ].map((chipPrompt, idx) => (
                       <button
                         key={idx}
@@ -626,7 +961,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                             opacity: 0.75,
                           }}
                         >
-                          {!isUser && <span>Grounded in Document</span>}
+                          {!isUser && <span>Grounded in Documents</span>}
                           <span>{m.timestamp}</span>
                         </div>
                       </div>
@@ -664,7 +999,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                       fontStyle: 'italic',
                     }}
                   >
-                    Analyzing document context and synthesizing response...
+                    Reasoning across documents and synthesizing response...
                   </div>
                 </div>
               )}
@@ -690,8 +1025,8 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                 className="input"
                 placeholder={
                   docTextAvailable
-                    ? 'Ask a follow-up question (e.g. "what about his degree?", "summarize in 2 lines")...'
-                    : 'Text extraction required for document Q&A...'
+                    ? `Ask anything across ${activeLabel} (e.g. "synthesize findings", "compare projects")...`
+                    : 'Upload a document to chat...'
                 }
                 value={docQuestion}
                 onChange={(e) => setDocQuestion(e.target.value)}

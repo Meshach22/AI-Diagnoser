@@ -5,13 +5,21 @@ Provides unified routing, strict modality guardrails, dynamic vision model resol
 and resilient multi-tier fallback cascades.
 """
 
+import os
+from dotenv import load_dotenv
+
+# Ensure GEMINI_API_KEY is always loaded from .env into worker process
+load_dotenv(override=True)
+_env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+if os.path.exists(_env_path):
+    load_dotenv(_env_path, override=True)
+
 import base64
 import concurrent.futures
 import io
 import json
 import logging
 import math
-import os
 import re
 import threading
 import time
@@ -234,8 +242,8 @@ def compress_and_downsample_image(
         return image
 
 
-def _execute_with_timeout(func, timeout_seconds=12.0, *args, **kwargs):
-    """Executes a function under a configurable timeout (default 12.0s) using the shared executor."""
+def _execute_with_timeout(func, timeout_seconds=30.0, *args, **kwargs):
+    """Executes a function under a configurable timeout (default 30.0s) using the shared executor."""
     future = _TIMEOUT_EXECUTOR.submit(func, *args, **kwargs)
     try:
         return future.result(timeout=timeout_seconds)
@@ -321,29 +329,25 @@ def _query_gemini(
         genai.configure(api_key=resolved_key, transport="rest")
         _CACHED_GEMINI_KEY = resolved_key
 
-    raw_model = (model_name or "gemini-3.8-flash").replace("models/", "").strip()
-    # Normalize deprecated model identifiers to active gemini-3.8-flash to prevent 404 latency loops
-    if raw_model in ("gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"):
-        clean_model_name = "gemini-3.8-flash"
-    else:
-        clean_model_name = raw_model
+    raw_model = (model_name or "gemini-flash-latest").replace("models/", "").strip()
+    clean_model_name = raw_model
 
     # Build clean candidate list: requested model first, then verified working flash models
     model_candidates = []
     if clean_model_name not in _UNAVAILABLE_GEMINI_MODELS:
         model_candidates.append(clean_model_name)
     fallback_pool = [
-        "gemini-3.8-flash",
         "gemini-flash-latest",
-        "gemini-3.5-flash",
+        "gemini-3.8-flash",
         "gemini-flash-lite-latest",
+        "gemini-2.5-flash",
     ]
     for m in fallback_pool:
         if m not in _UNAVAILABLE_GEMINI_MODELS and m not in model_candidates:
             model_candidates.append(m)
 
     if not model_candidates:
-        model_candidates = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.5-flash", "gemini-flash-lite-latest"]
+        model_candidates = ["gemini-flash-latest", "gemini-3.8-flash", "gemini-flash-lite-latest", "gemini-2.5-flash"]
 
     # Allow up to 4 candidates so ultra-fast flash-lite fallback is reachable when 429 quota hits
     model_candidates = model_candidates[:4]
@@ -354,7 +358,7 @@ def _query_gemini(
 
     last_error = None
     gen_config = {"temperature": 0.1, "max_output_tokens": 2048}
-    req_options = {"timeout": 8.0}
+    req_options = {"timeout": 30.0}
 
     for idx, candidate in enumerate(model_candidates):
         try:
@@ -470,7 +474,7 @@ def _query_openai(
         if "insufficient_quota" in err_str or "credit_balance" in err_str or "402" in err_str or "quota" in err_str or "balance" in err_str:
             LAST_TELEMETRY["active_provider"] = "Google Gemini"
             LAST_TELEMETRY["failover_badge"] = "Primary Failed (OpenAI 402 Quota) -> Fallback: Gemini"
-            return _query_gemini(prompt=prompt, model_name="gemini-3.5-flash", api_key=api_key, image_data=image_data)
+            return _query_gemini(prompt=prompt, model_name="gemini-flash-latest", api_key=api_key, image_data=image_data)
 
         raise e
 
@@ -1095,13 +1099,10 @@ class OfflineHeuristicsEngine:
 
         best_matches = scored[:3]
         top_sentence = best_matches[0][1]
-        response_lines = [
-            f"Based on the document context: {top_sentence}\n\n### Relevant Excerpts from Document\n"
-        ]
-        for score, sent, matched_words in best_matches:
-            response_lines.append(f"- {sent}\n")
-
-        return "\n".join(response_lines).strip()
+        additional_context = " ".join([sent.strip() for _, sent, _ in best_matches[1:] if sent.strip()])
+        if additional_context:
+            return f"{top_sentence.strip()} {additional_context.strip()}"
+        return top_sentence.strip()
 
     @classmethod
     def analyze_image_heuristics(cls, image: Image.Image, prompt: str = "") -> str:
@@ -1323,10 +1324,10 @@ class LLMRouter:
                         return res
                 elif candidate == "gemini":
                     cand_key = api_key if canonical == "gemini" else None
-                    cand_model = model_name if canonical == "gemini" and model_name else "gemini-3.8-flash"
+                    cand_model = model_name if canonical == "gemini" and model_name else "gemini-flash-latest"
                     res = _execute_with_timeout(
                         _query_gemini,
-                        12.0,
+                        30.0,
                         prompt=prompt,
                         model_name=cand_model,
                         api_key=cand_key,
@@ -1368,20 +1369,20 @@ class LLMRouter:
         cls,
         prompt: str,
         provider: str = "Google Gemini",
-        model_name: Optional[str] = "gemini-3.8-flash",
+        model_name: Optional[str] = "gemini-flash-latest",
         api_key: Optional[str] = None,
         **kwargs
     ) -> str:
-        """Route text queries across providers with 12s timeout and fallback."""
+        """Route text queries across providers with 30s timeout and fallback."""
         canonical = cls._canonical_provider(provider)
 
         try:
             if canonical == "gemini":
                 return _execute_with_timeout(
                     _query_gemini,
-                    16.0,
+                    30.0,
                     prompt=prompt,
-                    model_name=model_name or "gemini-3.8-flash",
+                    model_name=model_name or "gemini-flash-latest",
                     api_key=api_key,
                     image_data=None
                 )

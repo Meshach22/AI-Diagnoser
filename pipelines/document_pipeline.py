@@ -199,7 +199,7 @@ def generate_document_summary(
     doc_text: str,
     summary_type: str = "executive",
     model_provider: str = "Google Gemini",
-    model_name: str = "gemini-3.8-flash",
+    model_name: str = "gemini-flash-latest",
     api_key: Optional[str] = None,
     **kwargs
 ) -> str:
@@ -244,7 +244,7 @@ def ask_document_question(
     question: str,
     chat_history: Optional[List[Dict[str, Any]]] = None,
     model_provider: str = "Google Gemini",
-    model_name: str = "gemini-3.8-flash",
+    model_name: str = "gemini-flash-latest",
     api_key: Optional[str] = None,
     **kwargs
 ) -> str:

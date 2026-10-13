@@ -11,6 +11,7 @@ interface AuthContextType {
   isAuthModalOpen: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, name: string, password: string) => Promise<void>;
+  loginWithGoogle: (email?: string, name?: string) => Promise<void>;
   logout: () => Promise<void>;
   openAuthModal: () => void;
   closeAuthModal: () => void;
@@ -19,29 +20,68 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setTokenState] = useState<string | null>(null);
+  // Synchronous initialization from localStorage prevents flash of unauthenticated state on page reload
+  const [token, setTokenState] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('ai_diagnoser_token');
+    }
+    return null;
+  });
+
+  const [user, setUser] = useState<User | null>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const storedUser = localStorage.getItem('ai_diagnoser_user');
+        if (storedUser) {
+          return JSON.parse(storedUser);
+        }
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
+
   const [loading, setLoading] = useState<boolean>(true);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
 
   useEffect(() => {
     const initAuth = async () => {
-      const storedToken = api.getToken();
+      const storedToken = api.getToken() || (typeof window !== 'undefined' ? localStorage.getItem('ai_diagnoser_token') : null);
       if (storedToken) {
         api.setToken(storedToken);
         setTokenState(storedToken);
       }
 
-      // Check active session via token or cookie
+      // Immediately hydrate user state from localStorage so the user is NEVER logged out on refresh
+      if (typeof window !== 'undefined') {
+        try {
+          const cachedUser = localStorage.getItem('ai_diagnoser_user');
+          if (cachedUser) {
+            const parsed = JSON.parse(cachedUser);
+            if (parsed && parsed.email) {
+              setUser(parsed);
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // Verify and refresh session in background
       if (storedToken || typeof window !== 'undefined') {
         try {
           const userData = await api.getMe();
-          setUser(userData);
+          if (userData) {
+            setUser(userData);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('ai_diagnoser_user', JSON.stringify(userData));
+            }
+          }
         } catch (err: any) {
-          // Never prematurely wipe stored token on page reloads or transient backend failures.
-          // Token is strictly wiped only when the user explicitly triggers logout().
-          console.warn('Initial session validation check failed; preserving token for subsequent requests:', err?.message);
-          setUser(null);
+          // Crucial: NEVER log out or clear user or token on refresh or temporary server sleep.
+          // Session is strictly cleared ONLY if user explicitly clicks Sign Out.
+          console.warn('Background session refresh warning; preserved local session:', err?.message);
         }
       }
       setLoading(false);
@@ -54,6 +94,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const data = await api.login(email, password);
     setTokenState(data.token);
     setUser(data.user);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('ai_diagnoser_token', data.token);
+      localStorage.setItem('ai_diagnoser_user', JSON.stringify(data.user));
+    }
     setIsAuthModalOpen(false);
   };
 
@@ -61,13 +105,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const data = await api.register(email, name, password);
     setTokenState(data.token);
     setUser(data.user);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('ai_diagnoser_token', data.token);
+      localStorage.setItem('ai_diagnoser_user', JSON.stringify(data.user));
+    }
+    setIsAuthModalOpen(false);
+  };
+
+  const loginWithGoogle = async (email?: string, name?: string) => {
+    const data = await api.loginWithGoogle(email, name);
+    setTokenState(data.token);
+    setUser(data.user);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('ai_diagnoser_token', data.token);
+      localStorage.setItem('ai_diagnoser_user', JSON.stringify(data.user));
+    }
     setIsAuthModalOpen(false);
   };
 
   const logout = async () => {
-    await api.logout();
-    setTokenState(null);
-    setUser(null);
+    try {
+      await api.logout();
+    } catch {
+      // ignore
+    } finally {
+      setTokenState(null);
+      setUser(null);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('ai_diagnoser_token');
+        localStorage.removeItem('ai_diagnoser_user');
+      }
+    }
   };
 
   return (
@@ -79,6 +147,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthModalOpen,
         login,
         register,
+        loginWithGoogle,
         logout,
         openAuthModal: () => setIsAuthModalOpen(true),
         closeAuthModal: () => setIsAuthModalOpen(false),
@@ -96,3 +165,4 @@ export const useAuth = () => {
   }
   return context;
 };
+

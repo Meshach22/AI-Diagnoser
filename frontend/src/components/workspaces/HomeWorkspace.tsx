@@ -3,6 +3,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { WorkspaceTab } from '../layout/Sidebar';
+import { useAuth } from '@/context/AuthContext';
 import {
   UploadCloud,
   FileSpreadsheet,
@@ -16,6 +17,8 @@ import {
   CheckCircle2,
   Clock,
   ExternalLink,
+  MessageSquare,
+  Sparkles,
 } from 'lucide-react';
 
 interface HomeWorkspaceProps {
@@ -32,31 +35,82 @@ interface RecentUploadItem {
   status: string;
 }
 
+interface PastChatThread {
+  id: string;
+  query: string;
+  answerSnippet: string;
+  time: string;
+}
+
 export const HomeWorkspace: React.FC<HomeWorkspaceProps> = ({
   onSelectTab,
   onFileLoaded,
   onQuerySubmit,
 }) => {
+  const { user } = useAuth();
   const [query, setQuery] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [recentItems, setRecentItems] = useState<RecentUploadItem[]>([]);
+  const [pastChats, setPastChats] = useState<PastChatThread[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem('ai_diagnoser_upload_history');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed)) {
-            setRecentItems(parsed);
-          }
+    if (typeof window === 'undefined') return;
+
+    let items: RecentUploadItem[] = [];
+    try {
+      const stored = localStorage.getItem('ai_diagnoser_upload_history');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          items = parsed;
         }
-      } catch {
-        setRecentItems([]);
       }
+    } catch {
+      items = [];
     }
-  }, []);
+
+    // Load persistent user memory documents and chats
+    try {
+      const memKey = user?.email ? `ai_diagnoser_memory_${user.email}` : 'ai_diagnoser_memory_guest';
+      const userMemRaw = localStorage.getItem(memKey);
+      if (userMemRaw) {
+        const mem = JSON.parse(userMemRaw);
+        if (Array.isArray(mem.uploadedDocs)) {
+          mem.uploadedDocs.forEach((doc: any) => {
+            if (!items.some((it) => it.name === doc.filename)) {
+              items.unshift({
+                name: doc.filename,
+                type: 'document',
+                time: doc.uploadedAt || 'Saved Session',
+                size: `${doc.page_count} pages • ${doc.word_count?.toLocaleString() || 0} words`,
+                status: 'Persistent',
+              });
+            }
+          });
+        }
+        if (Array.isArray(mem.messages)) {
+          const chats: PastChatThread[] = [];
+          for (let i = 0; i < mem.messages.length; i++) {
+            if (mem.messages[i].role === 'user') {
+              const nextMsg = mem.messages[i + 1]?.role === 'assistant' ? mem.messages[i + 1].content : '';
+              chats.push({
+                id: mem.messages[i].id,
+                query: mem.messages[i].content,
+                answerSnippet: nextMsg ? nextMsg.slice(0, 110) + '...' : '',
+                time: mem.messages[i].timestamp || 'Saved',
+              });
+            }
+          }
+          setPastChats(chats.reverse().slice(0, 4));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    setRecentItems(items.slice(0, 10));
+  }, [user]);
 
   const formatBytes = (bytes: number): string => {
     if (!bytes || bytes === 0) return '0 B';
@@ -294,6 +348,57 @@ export const HomeWorkspace: React.FC<HomeWorkspaceProps> = ({
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Past AI Chat Sessions (ChatGPT / Gemini Style) */}
+        {pastChats.length > 0 && (
+          <div style={{ marginTop: 28 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div>
+                <h4 style={{ fontSize: '0.98rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
+                  Recent AI Chat Assistant Threads
+                </h4>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
+                  Pick up right where you left off with multi-turn conversational reasoning
+                </p>
+              </div>
+              <button className="btn btn-secondary btn-sm" onClick={() => onSelectTab('unified')}>
+                Open Assistant
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+              {pastChats.map((chat) => (
+                <div
+                  key={chat.id}
+                  onClick={() => onSelectTab('unified')}
+                  style={{
+                    padding: '14px 16px',
+                    borderRadius: 'var(--radius-md)',
+                    background: 'var(--bg-subtle)',
+                    border: '1px solid var(--border-soft)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = 'var(--accent-red)')}
+                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.borderColor = 'var(--border-soft)')}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <MessageSquare size={15} style={{ color: 'var(--accent-red)' }} />
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>{chat.time}</span>
+                  </div>
+                  <div style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {chat.query}
+                  </div>
+                  {chat.answerSnippet && (
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                      {chat.answerSnippet}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

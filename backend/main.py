@@ -9,6 +9,14 @@ Provides unified RESTful endpoints for:
 
 import os
 import sys
+from dotenv import load_dotenv
+
+# Ensure GEMINI_API_KEY and environment variables are strictly loaded in the worker
+load_dotenv(override=True)
+_env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+if os.path.exists(_env_path):
+    load_dotenv(_env_path, override=True)
+
 from datetime import datetime, timezone
 from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
