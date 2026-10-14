@@ -4,12 +4,11 @@
 import React, { useState } from 'react';
 import { DataWorkspace } from './DataWorkspace';
 import { DocWorkspace } from './DocWorkspace';
-import { ReportsWorkspace } from './ReportsWorkspace';
-import { FileSpreadsheet, FileText, FileCheck } from 'lucide-react';
+import { FileSpreadsheet, FileText } from 'lucide-react';
 
 interface UnifiedWorkspaceProps {
   initialFile?: File | null;
-  initialType?: 'data' | 'document' | 'reports' | 'vision';
+  initialType?: 'data' | 'document' | 'vision';
   onSendToChat?: (text: string) => void;
 }
 
@@ -19,8 +18,8 @@ export const UnifiedWorkspace: React.FC<UnifiedWorkspaceProps> = ({
   onSendToChat,
 }) => {
   const resolvedType = initialType === 'vision' ? 'document' : (initialType || 'data');
-  const [activeTab, setActiveTab] = useState<'data' | 'document' | 'reports'>(
-    resolvedType as 'data' | 'document' | 'reports'
+  const [activeTab, setActiveTab] = useState<'data' | 'document'>(
+    resolvedType as 'data' | 'document'
   );
 
   return (
@@ -44,15 +43,6 @@ export const UnifiedWorkspace: React.FC<UnifiedWorkspaceProps> = ({
           <FileText size={16} />
           <span>Document Intelligence</span>
         </button>
-
-        <button
-          className={`tab-btn ${activeTab === 'reports' ? 'active' : ''}`}
-          onClick={() => setActiveTab('reports')}
-          style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-        >
-          <FileCheck size={16} />
-          <span>Diagnostic Reports</span>
-        </button>
       </div>
 
       {/* Render active sub-workspace */}
@@ -61,9 +51,6 @@ export const UnifiedWorkspace: React.FC<UnifiedWorkspaceProps> = ({
       )}
       {activeTab === 'document' && (
         <DocWorkspace initialFile={initialType === 'document' || initialType === 'vision' ? initialFile : null} />
-      )}
-      {activeTab === 'reports' && (
-        <ReportsWorkspace />
       )}
     </div>
   );

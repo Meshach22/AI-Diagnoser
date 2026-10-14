@@ -4,6 +4,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api, ChatResponse } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Send,
   Bot,
@@ -47,6 +49,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const [selectedModel, setSelectedModel] = useState('gemini-3.8-flash');
   const [inputPrompt, setInputPrompt] = useState(initialPrompt);
   const [loading, setLoading] = useState(false);
+  const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -152,26 +155,82 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       promptToSend = `System Context: The user has uploaded the following document: ${activeDocContext?.filename || 'Document Context'}\n---\n${cappedContext}\n---\nUser Query: ${userMsg.text}`;
     }
 
+    const assistantMsgId = (Date.now() + 1).toString();
+    const startTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    let streamedText = '';
+
+    // Create an initial placeholder assistant message that will stream in real-time
+    const initialAssistantMsg: Message = {
+      id: assistantMsgId,
+      sender: 'assistant',
+      text: '',
+      provider: selectedProvider,
+      timestamp: startTimestamp,
+    };
+    setMessages((prev) => [...prev, initialAssistantMsg]);
+    setStreamingMsgId(assistantMsgId);
+
     try {
-      const resp: ChatResponse = await api.queryRouter(
+      const startTime = performance.now();
+      const streamRes = await api.streamRouter(
         promptToSend,
         selectedProvider,
-        selectedProvider === 'Google Gemini' ? (selectedModel || 'gemini-3.8-flash') : undefined
+        selectedProvider === 'Google Gemini' ? (selectedModel || 'gemini-3.8-flash') : undefined,
+        (token: string) => {
+          streamedText += token;
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMsgId ? { ...msg, text: streamedText } : msg
+            )
+          );
+        }
       );
-      const responseText = resp.result || resp.response;
-      const assistantMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        sender: 'assistant',
-        text: responseText || 'No content returned from router.',
-        provider: resp.active_provider || resp.provider,
-        latencyMs: resp.telemetry?.latency_ms,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
-    } catch (err: any) {
-      setError(err.message || 'Failed to query core router.');
+
+      const elapsedMs = Math.round(performance.now() - startTime);
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === assistantMsgId
+            ? {
+                ...msg,
+                text: streamedText || 'No response returned from stream.',
+                provider: streamRes.provider || selectedProvider,
+                latencyMs: streamRes.latencyMs || elapsedMs,
+              }
+            : msg
+        )
+      );
+    } catch (streamErr: any) {
+      console.warn('Streaming encountered an issue, evaluating fallback:', streamErr);
+      if (!streamedText) {
+        try {
+          const resp: ChatResponse = await api.queryRouter(
+            promptToSend,
+            selectedProvider,
+            selectedProvider === 'Google Gemini' ? (selectedModel || 'gemini-3.8-flash') : undefined
+          );
+          const responseText = resp.result || resp.response;
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMsgId
+                ? {
+                    ...msg,
+                    text: responseText || 'No content returned from router.',
+                    provider: resp.active_provider || resp.provider,
+                    latencyMs: resp.telemetry?.latency_ms,
+                  }
+                : msg
+            )
+          );
+        } catch (unaryErr: any) {
+          setError(unaryErr.message || streamErr.message || 'Failed to query core router.');
+          setMessages((prev) => prev.filter((msg) => msg.id !== assistantMsgId));
+        }
+      } else {
+        setError(`Stream interrupted: ${streamErr.message || 'Connection lost'}`);
+      }
     } finally {
       setLoading(false);
+      setStreamingMsgId(null);
     }
   };
 
@@ -194,12 +253,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             <Sparkles size={16} />
           </div>
           <div>
-            <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-              Chat with Core LLM Router
+            <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+              AI Chat Assistant
             </h2>
-            <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-              Direct access to multimodal diagnostic pipelines with automatic session injection
-            </p>
           </div>
         </div>
 
@@ -334,7 +390,34 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 boxShadow: 'var(--shadow-card)',
               }}
             >
-              {m.text}
+              {m.sender === 'user' ? (
+                <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>
+              ) : (
+                <div className="chat-markdown">
+                  {m.text ? (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {m.text}
+                    </ReactMarkdown>
+                  ) : (
+                    <span style={{ fontStyle: 'italic', opacity: 0.75 }}>
+                      Reasoning with {selectedProvider}...
+                    </span>
+                  )}
+                  {loading && streamingMsgId === m.id && (
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        width: 7,
+                        height: 15,
+                        backgroundColor: 'var(--accent-red)',
+                        marginLeft: 4,
+                        verticalAlign: 'text-bottom',
+                        animation: 'pulse 1s infinite',
+                      }}
+                    />
+                  )}
+                </div>
+              )}
 
               <div
                 style={{
@@ -378,7 +461,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           </div>
         ))}
 
-        {loading && (
+        {loading && !streamingMsgId && (
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
             <div
               style={{

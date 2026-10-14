@@ -31,7 +31,7 @@ import threading
 import time
 from contextlib import closing
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
@@ -157,6 +157,107 @@ def _verify_signed_token(token: str, secret_key: str, idle_timeout: float = 8640
         return None
 
 
+JWT_ISSUER = "ai-diagnoser"
+MAX_TOKEN_LENGTH = 2048
+GOOGLE_ISSUERS = ("accounts.google.com", "https://accounts.google.com")
+
+
+def _b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _b64url_decode(segment: str) -> bytes:
+    return base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4))
+
+
+def _create_jwt(
+    email: str,
+    name: str,
+    role: str,
+    is_admin: bool,
+    issued_at: float,
+    expires_at: float,
+    secret_key: str,
+) -> str:
+    """Create a standard stateless HS256 JWT identifying the user strictly by email (`sub`).
+
+    No server-side session row is required to validate it, so any number of workers /
+    serverless instances can verify it independently without sharing state.
+    """
+    header = {"alg": "HS256", "typ": "JWT"}
+    claims = {
+        "iss": JWT_ISSUER,
+        "sub": email,
+        "nm": name,
+        "ro": role,
+        "adm": 1 if is_admin else 0,
+        "iat": round(float(issued_at), 3),
+        "exp": int(expires_at),
+        "jti": secrets.token_hex(8),
+    }
+    signing_input = (
+        _b64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8"))
+        + "."
+        + _b64url_encode(json.dumps(claims, separators=(",", ":")).encode("utf-8"))
+    )
+    sig = hmac.new(secret_key.encode("utf-8"), signing_input.encode("ascii"), hashlib.sha256).digest()
+    return f"{signing_input}.{_b64url_encode(sig)}"
+
+
+def _verify_jwt(token: str, secret_key: str, now: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    """Verify an HS256 JWT signature, algorithm, issuer and expiry. Returns claims or None."""
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return None
+        header = json.loads(_b64url_decode(parts[0]))
+        if header.get("alg") != "HS256":  # reject 'none' / algorithm-confusion attempts
+            return None
+        expected = hmac.new(
+            secret_key.encode("utf-8"), f"{parts[0]}.{parts[1]}".encode("ascii"), hashlib.sha256
+        ).digest()
+        if not hmac.compare_digest(expected, _b64url_decode(parts[2])):
+            return None
+        claims = json.loads(_b64url_decode(parts[1]))
+        if claims.get("iss") != JWT_ISSUER or not claims.get("sub"):
+            return None
+        if (now if now is not None else time.time()) >= float(claims.get("exp", 0)):
+            return None
+        return claims
+    except Exception:
+        return None
+
+
+def verify_google_id_token(credential: str, client_id: str) -> Dict[str, Any]:
+    """Verify a Google Identity Services ID token and return trusted claims.
+
+    Validates signature (Google public certs), expiry, issuer and audience (our OAuth client ID).
+    Raises AuthError on any failure. Identity data is NEVER accepted from the client body.
+    """
+    if not client_id:
+        raise AuthError("google_not_configured", "Google sign-in is not configured on the server.", 503)
+    if not credential or not isinstance(credential, str) or len(credential) > 4096:
+        raise AuthError("invalid_google_token", "Invalid Google credential.", 401)
+    try:
+        from google.auth.transport import requests as google_requests
+        from google.oauth2 import id_token as google_id_token
+
+        info = google_id_token.verify_oauth2_token(
+            credential, google_requests.Request(), client_id, clock_skew_in_seconds=10
+        )
+    except Exception:
+        raise AuthError("invalid_google_token", "Google sign-in could not be verified. Please try again.", 401)
+    if info.get("iss") not in GOOGLE_ISSUERS:
+        raise AuthError("invalid_google_token", "Google sign-in could not be verified.", 401)
+    if not info.get("email") or not info.get("email_verified", False):
+        raise AuthError("unverified_email", "Your Google account email is not verified.", 401)
+    return {
+        "email": str(info["email"]),
+        "name": str(info.get("name") or ""),
+        "picture": str(info.get("picture") or "") or None,
+    }
+
+
 def validate_password(password: str) -> None:
     if not isinstance(password, str) or len(password) < PASSWORD_MIN_LENGTH:
         raise AuthError("weak_password", f"Password must be at least {PASSWORD_MIN_LENGTH} characters.")
@@ -210,9 +311,14 @@ class AuthService:
 
     # ------------------------------------------------------------------ db
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, timeout=10)
+        conn = sqlite3.connect(self.db_path, timeout=30)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        # WAL lets readers proceed during writes and serialises writers cleanly, which is
+        # what allows many concurrent users to share one SQLite file without lock errors.
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        conn.execute("PRAGMA busy_timeout=30000;")
         return conn
 
     def _init_db(self) -> None:
@@ -265,6 +371,12 @@ class AuthService:
                 );
                 """
             )
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS revoked_tokens (
+                       token_hash TEXT PRIMARY KEY,
+                       expires_at REAL NOT NULL
+                   )"""
+            )
             # Safe column migration for existing user tables
             user_cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
             if "role" not in user_cols:
@@ -273,6 +385,8 @@ class AuthService:
                 conn.execute("ALTER TABLE users ADD COLUMN picture TEXT")
             if "is_admin" not in user_cols:
                 conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+            if "tokens_valid_after" not in user_cols:
+                conn.execute("ALTER TABLE users ADD COLUMN tokens_valid_after REAL NOT NULL DEFAULT 0")
 
     # --------------------------------------------------------------- users
     def create_user(
@@ -348,7 +462,7 @@ class AuthService:
             row = conn.execute("SELECT id FROM users WHERE email = ?", (normalize_email(email),)).fetchone()
             if not row:
                 return False
-            conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (pw_hash, row["id"]))
+            conn.execute("UPDATE users SET password_hash = ?, tokens_valid_after = ? WHERE id = ?", (pw_hash, self._now(), row["id"]))
             conn.execute("DELETE FROM sessions WHERE user_id = ?", (row["id"],))  # revoke all sessions
         return True
 
@@ -405,13 +519,12 @@ class AuthService:
 
         from backend.config import settings
         secret = settings.SECRET_KEY or "ai-diagnoser-production-super-secret-key-2026"
-        token = _create_signed_token(
-            user_id=row["id"],
+        token = _create_jwt(
             email=row["email"],
             name=row["name"],
             role=user_role,
             is_admin=user_admin,
-            created_at=now,
+            issued_at=now,
             expires_at=expires_at,
             secret_key=secret,
         )
@@ -420,11 +533,6 @@ class AuthService:
             if self._ph.check_needs_rehash(row["password_hash"]):
                 conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (self._ph.hash(password), row["id"]))
             conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, row["id"]))
-            conn.execute(
-                "INSERT INTO sessions (token_hash, user_id, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, ?)",
-                (_hash_token(token), row["id"], now, now, expires_at),
-            )
-            conn.execute("DELETE FROM sessions WHERE expires_at <= ? OR last_seen_at <= ?", (now, now - self.session_idle))
 
         user_role = row["role"] if "role" in row.keys() else "user"
         user_admin = bool(row["is_admin"]) if "is_admin" in row.keys() else False
@@ -442,77 +550,102 @@ class AuthService:
         return token, info
 
     def validate_session(self, token: Optional[str]) -> Optional[SessionInfo]:
-        """Return the session if valid; refresh idle timer. Recovers signed tokens across server restarts."""
-        if not token or not isinstance(token, str) or len(token) > 512:
+        """Validate a stateless signed JWT (or a legacy signed `adt_` token).
+
+        The signature + expiry are verified in-process (no DB write, no shared session state).
+        The user's identity is then resolved strictly by the token's email from SQLite, so the
+        returned `user_id` always belongs to that email -- even if the database file was re-created
+        since the token was issued -- which prevents cross-user data contamination.
+        """
+        if not token or not isinstance(token, str) or len(token) > MAX_TOKEN_LENGTH:
             return None
-        token_hash = _hash_token(token)
         now = self._now()
 
-        # 1. Primary lookup in persistent sessions table
-        with closing(self._connect()) as conn, conn:
-            row = conn.execute(
-                """SELECT s.user_id, s.created_at, s.last_seen_at, s.expires_at,
-                          u.email, u.name, u.role, u.is_admin, u.is_active
-                   FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?""",
-                (token_hash,),
-            ).fetchone()
-            if row:
-                if now >= row["expires_at"] or now - row["last_seen_at"] >= self.session_idle or not row["is_active"]:
-                    conn.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
-                    return None
-                conn.execute("UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?", (now, token_hash))
-
-                user_role = row["role"] if "role" in row.keys() else "user"
-                user_admin = bool(row["is_admin"]) if "is_admin" in row.keys() else False
-
-                return SessionInfo(
-                    user_id=row["user_id"],
-                    email=row["email"],
-                    name=row["name"],
-                    role=user_role,
-                    is_admin=user_admin,
-                    created_at=row["created_at"],
-                    expires_at=row["expires_at"],
-                    idle_expires_at=min(row["expires_at"], now + self.session_idle),
-                )
-
-        # 2. Cryptographic recovery: if token is not found in sessions table (e.g. backend restarted or ephemeral db re-created),
-        # verify HMAC-SHA256 signature using persistent SECRET_KEY
         from backend.config import settings
         secret = settings.SECRET_KEY or "ai-diagnoser-production-super-secret-key-2026"
-        recovered = _verify_signed_token(token, secret, idle_timeout=self.session_idle)
-        if recovered:
+
+        claims = _verify_jwt(token, secret, now=now)
+        if claims is not None:
+            email = normalize_email(str(claims["sub"]))
+            token_name = str(claims.get("nm") or "User")
+            created_at = float(claims.get("iat", now))
+            expires_at = float(claims["exp"])
+        else:
+            legacy = _verify_signed_token(token, secret, idle_timeout=self.session_idle)
+            if not legacy:
+                return None
+            email = normalize_email(legacy.email)
+            token_name = legacy.name
+            created_at = legacy.created_at
+            expires_at = legacy.expires_at
+        if not email:
+            return None
+
+        token_hash = _hash_token(token)
+        with closing(self._connect()) as conn:
+            if conn.execute("SELECT 1 FROM revoked_tokens WHERE token_hash = ?", (token_hash,)).fetchone():
+                return None
+            row = conn.execute(
+                "SELECT id, email, name, role, is_admin, is_active, picture, tokens_valid_after FROM users WHERE email = ?",
+                (email,),
+            ).fetchone()
+
+        if row is None:
+            # Database was re-created (e.g. ephemeral disk). Re-provision a plain, non-privileged
+            # account for this verified email; privileges are never taken from the token here.
             try:
                 with closing(self._connect()) as conn, conn:
-                    u_row = conn.execute("SELECT id, is_active FROM users WHERE email = ?", (recovered.email,)).fetchone()
-                    if u_row:
-                        uid = u_row["id"]
-                        if not u_row["is_active"]:
-                            return None
-                    else:
-                        cur = conn.execute(
-                            "INSERT INTO users (email, name, password_hash, role, is_admin, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                            (recovered.email, recovered.name, self._dummy_hash, recovered.role, int(recovered.is_admin), now),
-                        )
-                        uid = cur.lastrowid
                     conn.execute(
-                        "INSERT OR REPLACE INTO sessions (token_hash, user_id, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, ?)",
-                        (token_hash, uid, recovered.created_at, now, recovered.expires_at),
+                        "INSERT OR IGNORE INTO users (email, name, password_hash, role, is_admin, created_at) "
+                        "VALUES (?, ?, ?, 'user', 0, ?)",
+                        (email, token_name, self._dummy_hash, now),
                     )
-            except Exception:
-                pass
-            return recovered
+                    row = conn.execute(
+                        "SELECT id, email, name, role, is_admin, is_active, picture, tokens_valid_after FROM users WHERE email = ?",
+                        (email,),
+                    ).fetchone()
+            except sqlite3.Error:
+                return None
+            if row is None:
+                return None
 
-        return None
+        if not row["is_active"] or created_at < float(row["tokens_valid_after"] or 0):
+            return None
+
+        return SessionInfo(
+            user_id=row["id"],
+            email=row["email"],
+            name=row["name"],
+            role=row["role"] if "role" in row.keys() else "user",
+            is_admin=bool(row["is_admin"]) if "is_admin" in row.keys() else False,
+            created_at=created_at,
+            expires_at=expires_at,
+            idle_expires_at=min(expires_at, now + self.session_idle),
+            picture=row["picture"] if "picture" in row.keys() else None,
+        )
 
     def revoke_session(self, token: Optional[str]) -> None:
-        if not token:
+        """Revoke a stateless token on logout by recording its hash until it would have expired."""
+        if not token or not isinstance(token, str) or len(token) > MAX_TOKEN_LENGTH:
             return
+        now = self._now()
+        expires_at = now + self.session_ttl
+        from backend.config import settings
+        secret = settings.SECRET_KEY or "ai-diagnoser-production-super-secret-key-2026"
+        claims = _verify_jwt(token, secret, now=now)
+        if claims is not None:
+            expires_at = float(claims["exp"])
         with closing(self._connect()) as conn, conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO revoked_tokens (token_hash, expires_at) VALUES (?, ?)",
+                (_hash_token(token), expires_at),
+            )
+            conn.execute("DELETE FROM revoked_tokens WHERE expires_at <= ?", (now,))
             conn.execute("DELETE FROM sessions WHERE token_hash = ?", (_hash_token(token),))
 
     def revoke_user_sessions(self, user_id: int) -> None:
         with closing(self._connect()) as conn, conn:
+            conn.execute("UPDATE users SET tokens_valid_after = ? WHERE id = ?", (self._now(), user_id))
             conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
 
     # ------------------------------------------------------------- reports
@@ -637,26 +770,26 @@ class AuthService:
     ) -> tuple[str, SessionInfo]:
         """Verify/create user via Google sign-in and issue active session."""
         norm_email = validate_email(email)
-        clean_name = validate_name(name) if (name and name.strip()) else norm_email.split("@")[0].capitalize()
+        try:
+            clean_name = validate_name((name or "").strip()[:NAME_MAX_LENGTH]) if (name and name.strip()) else norm_email.split("@")[0].capitalize()
+        except AuthError:
+            clean_name = norm_email.split("@")[0].capitalize()
         with closing(self._connect()) as conn, conn:
-            try:
-                conn.execute("ALTER TABLE users ADD COLUMN picture TEXT")
-            except Exception:
-                pass
             row = conn.execute("SELECT id, email, name, role, is_admin, is_active, picture FROM users WHERE email = ?", (norm_email,)).fetchone()
+            if row is not None and not row["is_active"]:
+                raise AuthError("account_disabled", "This account has been disabled.", 403)
             if not row:
-                random_pw = secrets.token_urlsafe(32)
-                pw_hash = self._ph.hash(random_pw)
-                cur = conn.execute(
-                    "INSERT INTO users (email, name, password_hash, role, is_admin, created_at, picture) VALUES (?, ?, ?, 'user', 0, ?, ?)",
-                    (norm_email, clean_name, pw_hash, self._now(), picture),
+                # Google accounts have no usable password: reuse the hash of an unguessable random secret.
+                # INSERT OR IGNORE keeps simultaneous first sign-ins for the same email race-safe.
+                conn.execute(
+                    "INSERT OR IGNORE INTO users (email, name, password_hash, role, is_admin, created_at, picture) VALUES (?, ?, ?, 'user', 0, ?, ?)",
+                    (norm_email, clean_name, self._dummy_hash, self._now(), picture),
                 )
-                user_id = cur.lastrowid
-                row = conn.execute("SELECT id, email, name, role, is_admin, is_active, picture FROM users WHERE id = ?", (user_id,)).fetchone()
+                row = conn.execute("SELECT id, email, name, role, is_admin, is_active, picture FROM users WHERE email = ?", (norm_email,)).fetchone()
             else:
                 updates = []
                 params = []
-                if picture and ("picture" not in row.keys() or picture != row["picture"]):
+                if picture and picture != row["picture"]:
                     updates.append("picture = ?")
                     params.append(picture)
                 if clean_name and clean_name != row["name"] and clean_name != "Workspace Analyst":
@@ -675,23 +808,17 @@ class AuthService:
 
         from backend.config import settings
         secret = settings.SECRET_KEY or "ai-diagnoser-production-super-secret-key-2026"
-        token = _create_signed_token(
-            user_id=row["id"],
+        token = _create_jwt(
             email=row["email"],
             name=row["name"],
             role=user_role,
             is_admin=user_admin,
-            created_at=now,
+            issued_at=now,
             expires_at=expires_at,
             secret_key=secret,
-            picture=user_pic,
         )
         with closing(self._connect()) as conn, conn:
             conn.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, row["id"]))
-            conn.execute(
-                "INSERT INTO sessions (token_hash, user_id, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, ?)",
-                (_hash_token(token), row["id"], now, now, expires_at),
-            )
 
         info = SessionInfo(
             user_id=row["id"],

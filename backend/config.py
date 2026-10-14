@@ -92,6 +92,10 @@ class BackendSettings(BaseSettings):
     JWT_SECRET: str = os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY") or "ai-diagnoser-production-super-secret-key-2026"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200  # 30 days (43,200 minutes)
 
+    # Google OAuth 2.0 (Google Identity Services). The backend verifies every ID token's
+    # signature, expiry, issuer and audience against this OAuth Web Client ID.
+    GOOGLE_CLIENT_ID: Optional[str] = os.getenv("GOOGLE_CLIENT_ID") or os.getenv("NEXT_PUBLIC_GOOGLE_CLIENT_ID")
+
     # n8n Automation Engine Settings
     N8N_BASE_URL: Optional[str] = os.getenv("N8N_BASE_URL")
     N8N_WEBHOOK_URL: Optional[str] = os.getenv("N8N_WEBHOOK_URL")

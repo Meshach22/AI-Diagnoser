@@ -822,9 +822,6 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                   <h4 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
                     AI Chat Assistant
                   </h4>
-                  <p style={{ fontSize: '0.78rem', margin: 0, color: 'var(--text-secondary)' }}>
-                    Intelligent document reasoning &amp; conversational memory
-                  </p>
                 </div>
               </div>
 

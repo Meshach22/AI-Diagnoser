@@ -7,7 +7,6 @@ import { Sidebar, WorkspaceTab } from '@/components/layout/Sidebar';
 import { HomeWorkspace } from '@/components/workspaces/HomeWorkspace';
 import { ChatWorkspace } from '@/components/workspaces/ChatWorkspace';
 import { UnifiedWorkspace } from '@/components/workspaces/UnifiedWorkspace';
-import { ReportsWorkspace } from '@/components/workspaces/ReportsWorkspace';
 import { SystemWorkspace } from '@/components/workspaces/SystemWorkspace';
 
 export default function AppHome() {
@@ -57,10 +56,6 @@ export default function AppHome() {
               initialType={selectedFileType}
               onSendToChat={handleQuerySubmit}
             />
-          )}
-
-          {activeTab === 'reports' && (
-            <ReportsWorkspace />
           )}
 
           {activeTab === 'system' && (

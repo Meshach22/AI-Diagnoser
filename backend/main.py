@@ -70,6 +70,16 @@ from fastapi import Request
 
 logger = logging.getLogger("backend.access")
 
+if settings.SECRET_KEY == "ai-diagnoser-production-super-secret-key-2026":
+    logging.getLogger("backend.startup").warning(
+        "SECRET_KEY/JWT_SECRET is using the insecure built-in default. Set a long random SECRET_KEY "
+        "in your Render environment; otherwise anyone can forge session tokens."
+    )
+if not settings.GOOGLE_CLIENT_ID:
+    logging.getLogger("backend.startup").warning(
+        "GOOGLE_CLIENT_ID is not set: Google sign-in will be rejected until it is configured."
+    )
+
 # Correlation ID and Structured Access Logging Middleware
 @app.middleware("http")
 async def structured_access_logging(request: Request, call_next):

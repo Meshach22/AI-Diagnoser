@@ -13,6 +13,8 @@ import time
 from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from backend.config import settings
 from backend.schemas.auth import (
@@ -28,6 +30,7 @@ from backend.services.auth_service import (
     AuthService,
     SessionInfo,
     get_auth_service,
+    verify_google_id_token,
 )
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
@@ -211,7 +214,7 @@ async def login(
 ):
     """Authenticate user credentials, issue a secure session token, and set HttpOnly cookie."""
     try:
-        token, info = auth_service.authenticate(req.email, req.password)
+        token, info = await run_in_threadpool(auth_service.authenticate, req.email, req.password)
         response.set_cookie(
             key=settings.AUTH_COOKIE_NAME,
             value=token,
@@ -252,8 +255,10 @@ async def register(
         )
     try:
         # Crucial security guarantee: self-service registration CANNOT grant administrative privileges
-        user_dict = auth_service.create_user(req.email, req.name, req.password, role="user", is_admin=False)
-        token, info = auth_service.authenticate(req.email, req.password)
+        user_dict = await run_in_threadpool(
+            auth_service.create_user, req.email, req.name, req.password, role="user", is_admin=False
+        )
+        token, info = await run_in_threadpool(auth_service.authenticate, req.email, req.password)
         response.set_cookie(
             key=settings.AUTH_COOKIE_NAME,
             value=token,
@@ -314,13 +319,10 @@ async def logout(
     return {"status": "success", "message": "Signed out successfully."}
 
 
-from pydantic import BaseModel
-
 class GoogleLoginRequest(BaseModel):
-    email: Optional[str] = None
-    name: Optional[str] = None
-    picture: Optional[str] = None
-    credential: Optional[str] = None
+    """Google Identity Services ID token (JWT). Identity is derived ONLY from the verified token."""
+
+    credential: str = Field(..., min_length=20, max_length=4096)
 
 
 @router.post("/google", response_model=LoginResponse, summary="Sign in or register with Google")
@@ -329,36 +331,19 @@ async def google_login(
     response: Response,
     auth_service: AuthService = Depends(get_auth_service),
 ):
-    """Authenticate or register user account with Google credentials and issue session cookie."""
-    email = req.email
-    name = req.name
-    picture = req.picture
+    """Verify a Google ID token, upsert the user (by email) in SQLite, and issue a stateless JWT."""
+    try:
+        # Network call to fetch Google's signing certs (cached by google-auth) -> keep off the event loop.
+        claims = await run_in_threadpool(verify_google_id_token, req.credential, settings.GOOGLE_CLIENT_ID or "")
+        token, info = await run_in_threadpool(
+            auth_service.authenticate_or_create_google_user,
+            claims["email"],
+            claims["name"],
+            claims["picture"],
+        )
+    except AuthError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
 
-    # If real Google ID token (credential) passed from Google Identity Services, decode claims
-    if req.credential:
-        try:
-            import base64
-            parts = req.credential.split(".")
-            if len(parts) >= 2:
-                payload_b64 = parts[1]
-                pad_len = 4 - (len(payload_b64) % 4)
-                if pad_len != 4:
-                    payload_b64 += "=" * pad_len
-                payload_json = base64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8")
-                payload_data = json.loads(payload_json)
-                if payload_data.get("email"):
-                    email = str(payload_data["email"])
-                if payload_data.get("name"):
-                    name = str(payload_data["name"])
-                if payload_data.get("picture"):
-                    picture = str(payload_data["picture"])
-        except Exception as exc:
-            logger.warning("Could not parse Google ID token claims: %s", exc)
-
-    email = email or "google.user@gmail.com"
-    name = name or email.split("@")[0].capitalize()
-
-    token, info = auth_service.authenticate_or_create_google_user(email, name, picture)
     response.set_cookie(
         key=settings.AUTH_COOKIE_NAME,
         value=token,

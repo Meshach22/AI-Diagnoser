@@ -7,10 +7,10 @@ Delegates to core/llm_router.py without duplicating provider algorithms.
 
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from core.config import MODEL_CATALOG
-from core.llm_router import get_last_telemetry, query_llm
+from core.llm_router import get_last_telemetry, query_llm, stream_llm
 
 logger = logging.getLogger("chat_service")
 
@@ -99,6 +99,32 @@ class ChatService:
                 "fallback_depth": 1,
                 "failover_badge": f"Failed: {type(exc).__name__}",
             }
+
+    @classmethod
+    def stream_query(
+        cls,
+        prompt: str,
+        provider: str = "Google Gemini",
+        model_name: Optional[str] = None,
+        api_key: Optional[str] = None,
+        image_data: Optional[Any] = None,
+    ) -> Iterator[str]:
+        """Validate the request and return a token iterator (empty string == keep-alive heartbeat)."""
+        if not prompt or not prompt.strip():
+            raise ValueError("Query prompt string is required.")
+
+        if provider in ("Google Gemini", "gemini", "gemini-3.8-flash"):
+            provider = "Google Gemini"
+            if not model_name:
+                model_name = "gemini-3.8-flash"
+
+        return stream_llm(
+            prompt=prompt.strip(),
+            model_provider=provider,
+            model_name=model_name,
+            api_key=api_key,
+            image_data=image_data,
+        )
 
     @classmethod
     def get_telemetry(cls) -> Dict[str, Any]:

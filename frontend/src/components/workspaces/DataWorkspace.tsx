@@ -9,7 +9,6 @@ import {
   Upload,
   BarChart2,
   Table,
-  Sparkles,
   AlertTriangle,
   CheckCircle2,
   FileCheck,
@@ -29,9 +28,8 @@ export const DataWorkspace: React.FC<DataWorkspaceProps> = ({
   const [file, setFile] = useState<File | null>(initialFile);
   const [profile, setProfile] = useState<DataProfileResult | null>(null);
   const [correlation, setCorrelation] = useState<CorrelationResult | null>(null);
-  const [insights, setInsights] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
-  const [activeSubTab, setActiveSubTab] = useState<'preview' | 'stats' | 'correlation' | 'ai'>('preview');
+  const [activeSubTab, setActiveSubTab] = useState<'preview' | 'stats' | 'correlation'>('preview');
   const [error, setError] = useState<string | null>(null);
 
   const handleFileUpload = async (selectedFile: File) => {
@@ -44,7 +42,6 @@ export const DataWorkspace: React.FC<DataWorkspaceProps> = ({
     setError(null);
     setProfile(null);
     setCorrelation(null);
-    setInsights(null);
 
     try {
       if (typeof window !== 'undefined') {
@@ -80,25 +77,6 @@ export const DataWorkspace: React.FC<DataWorkspaceProps> = ({
       setActiveSubTab('correlation');
     } catch (err: any) {
       setError(err.message || 'Failed to compute correlation matrix.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGenerateInsights = async () => {
-    if (!profile || !user) return;
-    setLoading(true);
-    try {
-      // Build sample CSV string from head rows
-      const headers = profile.columns.join(',');
-      const rows = profile.head.map((r) => profile.columns.map((c) => JSON.stringify(r[c] ?? '')).join(',')).join('\n');
-      const csvSnippet = `${headers}\n${rows}`;
-
-      const res = await api.getDataInsights(csvSnippet, 'Highlight key patterns, anomalies, and potential data risks');
-      setInsights(res);
-      setActiveSubTab('ai');
-    } catch (err: any) {
-      setError(err.message || 'Failed to generate AI insights.');
     } finally {
       setLoading(false);
     }
@@ -179,11 +157,7 @@ export const DataWorkspace: React.FC<DataWorkspaceProps> = ({
             </div>
 
             <div className="card" style={{ padding: 18, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 8 }}>
-              <button className="btn btn-primary btn-sm" onClick={handleGenerateInsights} style={{ width: '100%' }}>
-                <Sparkles size={14} />
-                <span>AI Executive Insights</span>
-              </button>
-              <button className="btn btn-secondary btn-sm" onClick={handleComputeCorrelation} style={{ width: '100%' }}>
+              <button className="btn btn-primary btn-sm" onClick={handleComputeCorrelation} style={{ width: '100%' }}>
                 <BarChart2 size={14} />
                 <span>Correlation Matrix</span>
               </button>
@@ -211,14 +185,6 @@ export const DataWorkspace: React.FC<DataWorkspaceProps> = ({
                   onClick={() => setActiveSubTab('correlation')}
                 >
                   Correlation Matrix
-                </button>
-              )}
-              {insights && (
-                <button
-                  className={`tab-btn ${activeSubTab === 'ai' ? 'active' : ''}`}
-                  onClick={() => setActiveSubTab('ai')}
-                >
-                  AI Insights Summary
                 </button>
               )}
             </div>
@@ -315,17 +281,6 @@ export const DataWorkspace: React.FC<DataWorkspaceProps> = ({
                     ))}
                   </tbody>
                 </table>
-              </div>
-            )}
-
-            {/* SubTab 4: AI Insights */}
-            {activeSubTab === 'ai' && insights && (
-              <div style={{ padding: 16, background: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-soft)', whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: '0.92rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, fontWeight: 700, color: 'var(--accent-red)' }}>
-                  <Sparkles size={18} />
-                  <span>Executive Anomaly & Opportunity Findings</span>
-                </div>
-                {insights}
               </div>
             )}
           </div>

@@ -14,7 +14,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 
-export type WorkspaceTab = 'home' | 'chat' | 'unified' | 'reports' | 'system';
+export type WorkspaceTab = 'home' | 'chat' | 'unified' | 'system';
 
 interface SidebarProps {
   activeTab: WorkspaceTab;
@@ -30,7 +30,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
     { id: 'home', label: 'Home Workspace', icon: <LayoutDashboard size={18} /> },
     { id: 'chat', label: 'Chat with Data', icon: <MessageSquare size={18} /> },
     { id: 'unified', label: 'Unified Analysis', icon: <Layers size={18} /> },
-    { id: 'reports', label: 'Reports & Artifacts', icon: <FileText size={18} /> },
     { id: 'system', label: 'System & Blueprints', icon: <Activity size={18} /> },
   ];
 

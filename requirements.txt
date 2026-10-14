@@ -18,3 +18,4 @@ python-multipart>=0.0.9
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
 argon2-cffi>=23.1.0
+google-auth>=2.29.0

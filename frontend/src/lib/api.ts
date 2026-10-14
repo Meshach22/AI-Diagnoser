@@ -96,16 +96,6 @@ export interface VisionMetadataResult {
   size_bytes: number;
 }
 
-export interface ReportItem {
-  report_id: string;
-  title: string;
-  content: string;
-  report_type: string;
-  created_at: string;
-  status: string;
-  owner_user_id?: number;
-}
-
 export interface WorkflowBlueprint {
   filename: string;
   title: string;
@@ -352,15 +342,11 @@ class ApiClient {
     }
   }
 
-  public async loginWithGoogle(
-    email?: string,
-    name?: string,
-    picture?: string,
-    credential?: string
-  ): Promise<{ token: string; user: User }> {
+  public async loginWithGoogle(credential: string): Promise<{ token: string; user: User }> {
+    // Only the signed Google ID token is sent; the backend verifies it and derives the identity.
     const data = await this.request<{ token: string; user: User }>('/api/v1/auth/google', {
       method: 'POST',
-      body: JSON.stringify({ email, name, picture, credential }),
+      body: JSON.stringify({ credential }),
     });
     this.setToken(data.token);
     return data;
@@ -419,6 +405,151 @@ class ApiClient {
         timestamp: Date.now(),
       },
     };
+  }
+
+  /**
+   * Stream a chat completion over Server-Sent Events (POST /api/v1/router/query/stream).
+   * `onToken` is invoked for every text piece as it arrives so the UI can render in real time.
+   * There is no total-duration timeout: the request is only aborted if NO bytes (tokens or
+   * heartbeats) arrive for `idleTimeoutMs`, or if the caller aborts via `signal`.
+   */
+  public async streamRouter(
+    prompt: string,
+    provider: string = 'Google Gemini',
+    modelName: string | undefined,
+    onToken: (token: string) => void,
+    options: { signal?: AbortSignal; idleTimeoutMs?: number } = {}
+  ): Promise<{ provider: string; latencyMs: number }> {
+    const idleTimeoutMs = options.idleTimeoutMs ?? 60000;
+    const controller = new AbortController();
+    if (options.signal) {
+      if (options.signal.aborted) controller.abort();
+      options.signal.addEventListener('abort', () => controller.abort());
+    }
+
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    let timedOut = false;
+    const armIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, idleTimeoutMs);
+    };
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    };
+    const token = this.getToken();
+    if (token && token.trim()) headers['Authorization'] = `Bearer ${token.trim()}`;
+
+    armIdleTimer();
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/router/query/stream`, {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+        cache: 'no-store',
+        body: JSON.stringify({ prompt, provider, model_name: modelName }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        let errorMsg = `HTTP Error ${res.status}`;
+        try {
+          const errJson = await res.json();
+          if (errJson.detail) {
+            errorMsg = typeof errJson.detail === 'string' ? errJson.detail : JSON.stringify(errJson.detail);
+          }
+        } catch {
+          // keep generic message
+        }
+        if (res.status === 401 && typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('ai_diagnoser_auth_expired', {
+              detail: { message: errorMsg, endpoint: '/api/v1/router/query/stream', status: 401 },
+            })
+          );
+        }
+        throw new Error(errorMsg);
+      }
+      if (!res.body) {
+        throw new Error('Streaming is not supported by this browser or proxy.');
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finished = false;
+      let meta = { provider, latencyMs: 0 };
+
+      const handleFrame = (frame: string) => {
+        let event = 'message';
+        const dataLines: string[] = [];
+        for (const line of frame.split('\n')) {
+          if (!line || line.startsWith(':')) continue; // comment / keep-alive
+          if (line.startsWith('event:')) event = line.slice(6).trim();
+          else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
+        }
+        if (!dataLines.length) return;
+        let payload: any;
+        try {
+          payload = JSON.parse(dataLines.join('\n'));
+        } catch {
+          return;
+        }
+        if (event === 'token' && typeof payload.token === 'string') {
+          onToken(payload.token);
+        } else if (event === 'done') {
+          finished = true;
+          meta = {
+            provider: payload.provider || provider,
+            latencyMs: Number(payload.latency_ms) || 0,
+          };
+        } else if (event === 'error') {
+          throw new Error(payload.message || 'The model stream failed.');
+        }
+      };
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        armIdleTimer(); // any bytes (tokens or heartbeats) prove the connection is alive
+        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+        let sep: number;
+        while ((sep = buffer.indexOf('\n\n')) !== -1) {
+          const frame = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+          handleFrame(frame);
+        }
+      }
+      if (buffer.trim()) handleFrame(buffer);
+
+      if (!finished) {
+        throw new Error('The response stream ended unexpectedly. Please try again.');
+      }
+      return meta;
+    } catch (err: any) {
+      if (timedOut) {
+        throw new Error(
+          `No response received for ${Math.round(idleTimeoutMs / 1000)}s. The backend may be waking up from sleep; please try again in a moment.`
+        );
+      }
+      if (err?.name === 'AbortError') {
+        throw new Error('Request cancelled.');
+      }
+      if (err instanceof TypeError && String(err.message).toLowerCase().includes('fetch')) {
+        throw new Error(
+          'Unable to communicate with the AI-Diagnoser backend service (Failed to fetch). ' +
+          'The server may be waking up from cold start, or network connectivity was interrupted.'
+        );
+      }
+      throw err;
+    } finally {
+      if (idleTimer) clearTimeout(idleTimer);
+    }
   }
 
   public async getTelemetry(): Promise<Record<string, any>> {
@@ -539,18 +670,6 @@ class ApiClient {
     });
   }
 
-  public async getDataInsights(
-    datasetCsv: string,
-    userQuery?: string,
-    provider: string = 'Google Gemini'
-  ): Promise<string> {
-    const data = await this.request<{ result: string }>('/api/v1/data/insights', {
-      method: 'POST',
-      body: JSON.stringify({ dataset_csv: datasetCsv, user_query: userQuery, provider }),
-    });
-    return data.result;
-  }
-
   // --- Vision & Infographics ---
   public async getImageMetadata(file: File): Promise<VisionMetadataResult> {
     const formData = new FormData();
@@ -579,40 +698,7 @@ class ApiClient {
     return data.result;
   }
 
-  // --- Reports & Automation ---
-  public async generateReport(
-    title: string,
-    content: string,
-    reportType: string = 'markdown',
-    recipientEmail?: string,
-    slackChannel?: string
-  ): Promise<ReportItem> {
-    return this.request('/api/v1/n8n/reports/generate', {
-      method: 'POST',
-      body: JSON.stringify({
-        title,
-        content,
-        report_type: reportType,
-        recipient_email: recipientEmail,
-        slack_channel: slackChannel,
-      }),
-    });
-  }
-
-  public async listReports(): Promise<ReportItem[]> {
-    return this.request('/api/v1/n8n/reports');
-  }
-
-  public async getReport(reportId: string): Promise<ReportItem> {
-    return this.request(`/api/v1/n8n/reports/${reportId}`);
-  }
-
-  public async deleteReport(reportId: string): Promise<{ status: string }> {
-    return this.request(`/api/v1/n8n/reports/${reportId}`, {
-      method: 'DELETE',
-    });
-  }
-
+  // --- Automation Blueprints ---
   public async listWorkflows(): Promise<WorkflowBlueprint[]> {
     return this.request('/api/v1/n8n/workflows');
   }

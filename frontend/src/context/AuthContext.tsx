@@ -11,11 +11,35 @@ interface AuthContextType {
   isAuthModalOpen: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, name: string, password: string) => Promise<void>;
-  loginWithGoogle: (email?: string, name?: string, picture?: string, credential?: string) => Promise<void>;
+  loginWithGoogle: (credential: string) => Promise<void>;
   logout: () => Promise<void>;
   openAuthModal: () => void;
   closeAuthModal: () => void;
 }
+
+// Browser caches that are not scoped per user. They must never leak between accounts.
+const SHARED_CACHE_KEYS = ['ai_diagnoser_upload_history', 'ai_diagnoser_memory_guest'];
+
+const purgeSharedCaches = () => {
+  if (typeof window === 'undefined') return;
+  SHARED_CACHE_KEYS.forEach((k) => localStorage.removeItem(k));
+};
+
+// Purge shared caches when the authenticated identity differs from the previous one.
+const persistSession = (token: string, user: User) => {
+  if (typeof window === 'undefined') return;
+  try {
+    const previous = localStorage.getItem('ai_diagnoser_user');
+    const prevEmail = previous ? (JSON.parse(previous)?.email as string | undefined) : undefined;
+    if (prevEmail && prevEmail.toLowerCase() !== user.email.toLowerCase()) {
+      purgeSharedCaches();
+    }
+  } catch {
+    purgeSharedCaches();
+  }
+  localStorage.setItem('ai_diagnoser_token', token);
+  localStorage.setItem('ai_diagnoser_user', JSON.stringify(user));
+};
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -113,10 +137,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const data = await api.login(email, password);
     setTokenState(data.token);
     setUser(data.user);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('ai_diagnoser_token', data.token);
-      localStorage.setItem('ai_diagnoser_user', JSON.stringify(data.user));
-    }
+    persistSession(data.token, data.user);
     setIsAuthModalOpen(false);
   };
 
@@ -124,26 +145,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const data = await api.register(email, name, password);
     setTokenState(data.token);
     setUser(data.user);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('ai_diagnoser_token', data.token);
-      localStorage.setItem('ai_diagnoser_user', JSON.stringify(data.user));
-    }
+    persistSession(data.token, data.user);
     setIsAuthModalOpen(false);
   };
 
-  const loginWithGoogle = async (
-    email?: string,
-    name?: string,
-    picture?: string,
-    credential?: string
-  ) => {
-    const data = await api.loginWithGoogle(email, name, picture, credential);
+  const loginWithGoogle = async (credential: string) => {
+    const data = await api.loginWithGoogle(credential);
     setTokenState(data.token);
     setUser(data.user);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('ai_diagnoser_token', data.token);
-      localStorage.setItem('ai_diagnoser_user', JSON.stringify(data.user));
-    }
+    persistSession(data.token, data.user);
     setIsAuthModalOpen(false);
   };
 
@@ -158,6 +168,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (typeof window !== 'undefined') {
         localStorage.removeItem('ai_diagnoser_token');
         localStorage.removeItem('ai_diagnoser_user');
+        purgeSharedCaches();
       }
     }
   };

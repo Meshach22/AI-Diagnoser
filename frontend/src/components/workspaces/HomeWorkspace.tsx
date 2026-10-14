@@ -140,10 +140,8 @@ export const HomeWorkspace: React.FC<HomeWorkspaceProps> = ({
   };
 
   const chips = [
-    { label: 'Show key insights', prompt: 'Highlight the core findings, operational risks, and key opportunities in this data.', icon: <BarChart size={14} /> },
     { label: 'Create a summary', prompt: 'Provide a concise executive summary with key metrics, conclusions, and next steps.', icon: <FileText size={14} /> },
     { label: 'Find trends', prompt: 'Identify primary trends, notable changes over time, and outliers in this dataset.', icon: <TrendingUp size={14} /> },
-    { label: 'Visualize this data', prompt: 'Suggest the 3 most informative visualizations for this dataset and explain why.', icon: <PieChart size={14} /> },
     { label: 'Compare values', prompt: 'Compare performance across segments and summarize key differences against baseline averages.', icon: <FileSearch size={14} /> },
   ];
 

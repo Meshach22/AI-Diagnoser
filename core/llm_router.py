@@ -24,7 +24,7 @@ import re
 import threading
 import time
 from collections import Counter
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 from PIL import Image, ImageOps
 import requests
 
@@ -37,7 +37,14 @@ _CLIENT_CACHE: Dict[Tuple[Any, ...], Any] = {}
 _CLIENT_CACHE_LOCK = threading.Lock()
 _CACHED_GEMINI_KEY: Optional[str] = None
 _UNAVAILABLE_GEMINI_MODELS: set = set()
-_TIMEOUT_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="llm_router_worker")
+_TIMEOUT_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=32, thread_name_prefix="llm_router_worker")
+
+# Upstream LLM request timeout. Never below 60s (the old hardcoded 12s limit caused ReadTimeouts);
+# responses are streamed so the HTTP connection to the browser stays alive while tokens arrive.
+try:
+    LLM_REQUEST_TIMEOUT_SECONDS: float = max(60.0, float(os.getenv("LLM_REQUEST_TIMEOUT_SECONDS", "90")))
+except ValueError:
+    LLM_REQUEST_TIMEOUT_SECONDS = 90.0
 
 # ---------------------------------------------------------------------------
 # Provider Modality Capability Registries
@@ -358,8 +365,8 @@ def _query_gemini(
         pil_image = compress_and_downsample_image(pil_image, max_dim=1024, quality=85)
 
     last_error = None
-    gen_config = {"temperature": 0.1, "max_output_tokens": 2048}
-    req_options = {"timeout": 45.0}
+    gen_config = {"temperature": 0.1, "max_output_tokens": 4096}
+    req_options = {"timeout": LLM_REQUEST_TIMEOUT_SECONDS}
 
     for idx, candidate in enumerate(model_candidates):
         try:
@@ -439,6 +446,157 @@ def _query_gemini(
 
 
 # ---------------------------------------------------------------------------
+# Streaming (SSE-friendly) generators
+# ---------------------------------------------------------------------------
+_STREAM_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=32, thread_name_prefix="llm_stream_worker")
+
+
+def _gemini_chunk_text(chunk: Any) -> str:
+    """Safely extract text from a streamed Gemini chunk (quick accessor raises on empty/blocked parts)."""
+    try:
+        if getattr(chunk, "text", None):
+            return chunk.text
+    except Exception:
+        pass
+    try:
+        cands = getattr(chunk, "candidates", None) or []
+        if cands and getattr(cands[0], "content", None):
+            return "".join(getattr(p, "text", "") or "" for p in cands[0].content.parts)
+    except Exception:
+        pass
+    return ""
+
+
+def _stream_gemini(
+    prompt: str,
+    model_name: str = "gemini-3.8-flash",
+    api_key: Optional[str] = None,
+    image_data: Optional[Any] = None,
+) -> Iterator[str]:
+    """Stream Gemini output token-by-token using generate_content(stream=True).
+
+    The first token is yielded as soon as Gemini produces it, which keeps the HTTP connection
+    to the client alive and removes the need for any short end-to-end request timeout.
+    The model cascade is only used while nothing has been emitted yet; once tokens have been
+    streamed to the user we never silently switch models mid-answer.
+    """
+    global _CACHED_GEMINI_KEY
+    resolved_key = (
+        (api_key.strip() if api_key and str(api_key).strip() else None)
+        or os.getenv("GEMINI_API_KEY")
+        or os.getenv("GOOGLE_API_KEY")
+        or _resolve_master_api_key(
+            api_key,
+            secret_names=["gemini_api_key", "GEMINI_API_KEY", "google_api_key", "GOOGLE_API_KEY"],
+            env_names=["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+        )
+    )
+    if not resolved_key:
+        raise ValueError("Google Gemini Master Key Missing")
+
+    try:
+        import google.generativeai as genai
+    except ImportError:
+        raise RuntimeError("`google-generativeai` package is not installed.")
+
+    if _CACHED_GEMINI_KEY != resolved_key:
+        genai.configure(api_key=resolved_key, transport="rest")
+        _CACHED_GEMINI_KEY = resolved_key
+
+    priority_cascade = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-flash-latest"]
+    clean_model_name = (model_name or "gemini-3.8-flash").replace("models/", "").strip()
+    candidates: List[str] = []
+    if clean_model_name and clean_model_name not in _UNAVAILABLE_GEMINI_MODELS:
+        candidates.append(clean_model_name)
+    for m in priority_cascade:
+        if m not in _UNAVAILABLE_GEMINI_MODELS and m not in candidates:
+            candidates.append(m)
+    candidates = (candidates or list(priority_cascade))[:4]
+
+    pil_image = _prepare_pil_image(image_data)
+    if pil_image:
+        pil_image = compress_and_downsample_image(pil_image, max_dim=1024, quality=85)
+
+    gen_config = {"temperature": 0.1, "max_output_tokens": 4096}
+    req_options = {"timeout": LLM_REQUEST_TIMEOUT_SECONDS}
+    last_error: Optional[BaseException] = None
+
+    for candidate in candidates:
+        emitted = False
+        try:
+            try:
+                model = genai.GenerativeModel(
+                    candidate, generation_config=gen_config, system_instruction=ANALYST_SYSTEM_PROMPT
+                )
+            except Exception:
+                model = genai.GenerativeModel(candidate, generation_config=gen_config)
+            payload: Any = [prompt, pil_image] if pil_image else prompt
+            response = model.generate_content(payload, stream=True, request_options=req_options)
+            for chunk in response:
+                piece = _gemini_chunk_text(chunk)
+                if piece:
+                    emitted = True
+                    yield piece
+            if emitted:
+                LAST_TELEMETRY["active_provider"] = "Google Gemini"
+                return
+            last_error = RuntimeError(f"Model '{candidate}' returned an empty stream.")
+        except Exception as e:  # noqa: BLE001 - provider SDKs raise many exception types
+            last_error = e
+            if emitted:
+                raise  # cannot cascade after the user has already received partial output
+            err_msg = str(e).lower()
+            logger.warning("Gemini stream candidate '%s' failed (%s: %s). Trying next...", candidate, type(e).__name__, e)
+            if any(s in err_msg for s in ("404", "not found", "not available", "no longer available", "400", "unsupported", "429", "quota", "resourceexhausted")):
+                _UNAVAILABLE_GEMINI_MODELS.add(candidate)
+            continue
+
+    raise RuntimeError(f"Gemini streaming failed on all models: {type(last_error).__name__}: {last_error}")
+
+
+def stream_llm(
+    prompt: str,
+    model_provider: str = "Google Gemini",
+    model_name: Optional[str] = "gemini-3.8-flash",
+    api_key: Optional[str] = None,
+    image_data: Optional[Any] = None,
+    **kwargs
+) -> Iterator[str]:
+    """Unified streaming entry point. Yields text pieces; an empty string is a keep-alive heartbeat.
+
+    - Google Gemini: real token streaming (stream=True).
+    - Other providers: the blocking provider call runs in a worker thread while heartbeats keep
+      the connection open, then the answer is emitted in small chunks.
+    """
+    if "provider" in kwargs:
+        model_provider = kwargs.pop("provider")
+    canonical = LLMRouter._canonical_provider(model_provider)
+
+    if canonical == "gemini":
+        yield from _stream_gemini(prompt, model_name or "gemini-3.8-flash", api_key, image_data)
+        return
+
+    future = _STREAM_EXECUTOR.submit(
+        query_llm,
+        prompt=prompt,
+        model_provider=model_provider,
+        model_name=model_name,
+        api_key=api_key,
+        image_data=image_data,
+        **kwargs,
+    )
+    while True:
+        try:
+            result = future.result(timeout=5.0)
+            break
+        except concurrent.futures.TimeoutError:
+            yield ""  # heartbeat: keeps proxies and the browser connection from timing out
+    text = result or ""
+    for i in range(0, len(text), 64):
+        yield text[i:i + 64]
+
+
+# ---------------------------------------------------------------------------
 # Provider 2: OpenAI Implementation
 # ---------------------------------------------------------------------------
 def _query_openai(
@@ -467,7 +625,7 @@ def _query_openai(
             client_key = ("openai", resolved_key)
             client = _CLIENT_CACHE.get(client_key)
             if client is None:
-                client = OpenAI(api_key=resolved_key, timeout=12.0)
+                client = OpenAI(api_key=resolved_key, timeout=LLM_REQUEST_TIMEOUT_SECONDS)
                 _CLIENT_CACHE[client_key] = client
 
         pil_image = _prepare_pil_image(image_data)
@@ -563,7 +721,7 @@ def _query_deepseek(
         client_key = ("deepseek", resolved_key, effective_base_url)
         client = _CLIENT_CACHE.get(client_key)
         if client is None:
-            client = OpenAI(api_key=resolved_key, base_url=effective_base_url, timeout=12.0)
+            client = OpenAI(api_key=resolved_key, base_url=effective_base_url, timeout=LLM_REQUEST_TIMEOUT_SECONDS)
             _CLIENT_CACHE[client_key] = client
 
     messages = [
@@ -611,7 +769,7 @@ def _query_groq(
         client_key = ("groq", resolved_key)
         client = _CLIENT_CACHE.get(client_key)
         if client is None:
-            client = Groq(api_key=resolved_key, timeout=12.0)
+            client = Groq(api_key=resolved_key, timeout=LLM_REQUEST_TIMEOUT_SECONDS)
             _CLIENT_CACHE[client_key] = client
 
     pil_image = _prepare_pil_image(image_data)
@@ -1352,7 +1510,7 @@ class LLMRouter:
                     cand_model = model_name if canonical == "openai" else "gpt-4o-mini"
                     res = _execute_with_timeout(
                         _query_openai,
-                        15.0,
+                        LLM_REQUEST_TIMEOUT_SECONDS,
                         prompt=prompt,
                         model_name=cand_model,
                         api_key=cand_key,
@@ -1367,7 +1525,7 @@ class LLMRouter:
                     cand_model = model_name if canonical == "gemini" and model_name else "gemini-3.8-flash"
                     res = _execute_with_timeout(
                         _query_gemini,
-                        120.0,
+                        max(120.0, LLM_REQUEST_TIMEOUT_SECONDS),
                         prompt=prompt,
                         model_name=cand_model,
                         api_key=cand_key,
@@ -1381,7 +1539,7 @@ class LLMRouter:
                     base_url = kwargs.get("base_url", "http://localhost:11434")
                     res = _execute_with_timeout(
                         _query_ollama,
-                        12.0,
+                        max(95.0, LLM_REQUEST_TIMEOUT_SECONDS),
                         prompt=prompt,
                         model_name="llava",
                         base_url=base_url,
@@ -1420,7 +1578,7 @@ class LLMRouter:
             if canonical == "gemini":
                 return _execute_with_timeout(
                     _query_gemini,
-                    120.0,
+                    max(120.0, LLM_REQUEST_TIMEOUT_SECONDS),
                     prompt=prompt,
                     model_name=model_name or "gemini-3.8-flash",
                     api_key=api_key,
@@ -1429,7 +1587,7 @@ class LLMRouter:
             elif canonical == "openai":
                 return _execute_with_timeout(
                     _query_openai,
-                    12.0,
+                    LLM_REQUEST_TIMEOUT_SECONDS,
                     prompt=prompt,
                     model_name=model_name or "gpt-4o-mini",
                     api_key=api_key,
@@ -1439,7 +1597,7 @@ class LLMRouter:
                 base_url = kwargs.get("base_url", "https://api.deepseek.com/v1")
                 return _execute_with_timeout(
                     _query_deepseek,
-                    6.0,
+                    LLM_REQUEST_TIMEOUT_SECONDS,
                     prompt=prompt,
                     model_name=model_name or "deepseek-chat",
                     api_key=api_key,
@@ -1449,7 +1607,7 @@ class LLMRouter:
             elif canonical == "groq":
                 return _execute_with_timeout(
                     _query_groq,
-                    6.0,
+                    LLM_REQUEST_TIMEOUT_SECONDS,
                     prompt=prompt,
                     model_name=model_name or "llama-3.3-70b-versatile",
                     api_key=api_key,
@@ -1459,7 +1617,7 @@ class LLMRouter:
                 base_url = kwargs.get("base_url", "http://localhost:11434")
                 return _execute_with_timeout(
                     _query_ollama,
-                    6.0,
+                    max(95.0, LLM_REQUEST_TIMEOUT_SECONDS),
                     prompt=prompt,
                     model_name=model_name or "llama3.2",
                     base_url=base_url,
@@ -1476,7 +1634,7 @@ class LLMRouter:
                 LAST_TELEMETRY["failover_badge"] = f"Primary Diagnostic: {type(exc).__name__}"
                 return diag
             if isinstance(exc, (TimeoutError, concurrent.futures.TimeoutError)):
-                LAST_TELEMETRY["failover_badge"] = f"Primary Timeout (>12.0s on {provider}) -> Fallback: Offline Heuristics"
+                LAST_TELEMETRY["failover_badge"] = f"Primary Timeout (>{LLM_REQUEST_TIMEOUT_SECONDS:.0f}s on {provider}) -> Fallback: Offline Heuristics"
             else:
                 LAST_TELEMETRY["failover_badge"] = f"Primary Failed ({provider}: {type(exc).__name__}) -> Fallback: Offline Heuristics"
             return _query_offline(prompt=prompt, image_data=None)
