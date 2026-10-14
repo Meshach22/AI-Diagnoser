@@ -42,21 +42,22 @@ class DocumentService:
         provider: str = "Google Gemini",
         model_name: Optional[str] = None,
         api_key: Optional[str] = None,
-        timeout: float = 45.0,
+        timeout: float = 60.0,
     ) -> Dict[str, Any]:
-        """Orchestrate document summarization with telemetry capture and 45.0s timeout."""
+        """Orchestrate document summarization with telemetry capture and 60.0s timeout."""
         if not text or not text.strip():
             raise ValueError("Document body text is required for summarization.")
 
         valid_types = {"executive", "key_takeaways", "action_items", "action_items_and_risks", "deep_dive"}
         effective_type = summary_type if summary_type in valid_types else "executive"
+        effective_model = model_name or "gemini-2.5-flash"
 
         try:
             result = generate_document_summary(
                 doc_text=text.strip(),
                 summary_type=effective_type,
                 model_provider=provider,
-                model_name=model_name,
+                model_name=effective_model,
                 api_key=api_key,
                 timeout=timeout,
             )
@@ -80,13 +81,15 @@ class DocumentService:
         provider: str = "Google Gemini",
         model_name: Optional[str] = None,
         api_key: Optional[str] = None,
-        timeout: float = 45.0,
+        timeout: float = 60.0,
     ) -> Dict[str, Any]:
-        """Orchestrate contextual Ask-the-Document Q&A with multi-turn chat history and 45.0s timeout."""
+        """Orchestrate contextual Ask-the-Document Q&A with multi-turn chat history and 60.0s timeout."""
         if not text or not text.strip():
             raise ValueError("Document text context is required for Q&A.")
         if not question or not question.strip():
             raise ValueError("Query question string is required.")
+
+        effective_model = model_name or "gemini-2.5-flash"
 
         try:
             result = ask_document_question(
@@ -94,7 +97,7 @@ class DocumentService:
                 question=question.strip(),
                 chat_history=chat_history or [],
                 model_provider=provider,
-                model_name=model_name,
+                model_name=effective_model,
                 api_key=api_key,
                 timeout=timeout,
             )
@@ -108,3 +111,43 @@ class DocumentService:
         except Exception as exc:
             logger.error(f"Document Q&A failed: {exc}")
             raise RuntimeError(f"Document Q&A processing error: {str(exc)}")
+
+    @classmethod
+    def stream_question(
+        cls,
+        text: str,
+        question: str,
+        chat_history: Optional[list] = None,
+        provider: str = "Google Gemini",
+        model_name: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ):
+        """Stream contextual Ask-the-Document Q&A tokens via stream_llm."""
+        if not text or not text.strip():
+            raise ValueError("Document text context is required for Q&A.")
+        if not question or not question.strip():
+            raise ValueError("Query question string is required.")
+
+        from core.llm_router import escape_boundary_tags, stream_llm
+        from core.prompt_policy import build_document_qa_prompt
+
+        max_chars = 30000
+        truncated_text = text.strip()[:max_chars]
+        escaped_doc = escape_boundary_tags(truncated_text)
+        escaped_query = escape_boundary_tags(question.strip())
+
+        prompt = build_document_qa_prompt(
+            document_text=escaped_doc,
+            user_query=escaped_query,
+            chat_history=chat_history or [],
+        )
+
+        effective_model = model_name or "gemini-2.5-flash"
+        return stream_llm(
+            prompt=prompt,
+            model_provider=provider or "Google Gemini",
+            model_name=effective_model,
+            api_key=api_key,
+            max_output_tokens=1024,
+        )
+

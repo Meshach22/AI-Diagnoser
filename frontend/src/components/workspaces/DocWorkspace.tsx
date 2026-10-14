@@ -97,7 +97,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
 
       // Sync to backend if authenticated
       if (user) {
-        api.saveWorkspaceMemory(memoryPayload).catch(() => {});
+        api.saveWorkspaceMemory(memoryPayload).catch(() => { });
       }
     },
     [getMemoryKey, user]
@@ -313,7 +313,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
     setSummaryType(type);
 
     try {
-      const res = await api.summarizeDocument(docText, type, 'Google Gemini', 'gemini-3.8-flash');
+      const res = await api.summarizeDocument(docText, type, 'Google Gemini');
       setSummary(res);
       persistMemory(uploadedDocs, messages, res, activeDocId, type);
     } catch (err: any) {
@@ -355,7 +355,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
         content: m.content,
       }));
 
-      const answer = await api.askDocument(docText, query, 'Google Gemini', historyPayload, 'gemini-3.8-flash');
+      const answer = await api.askDocument(docText, query, 'Google Gemini', historyPayload, 'gemini-flash-latest');
 
       const assistantMsg: ChatMessage = {
         id: `assistant-${Date.now()}`,
@@ -822,6 +822,9 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                   <h4 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
                     AI Chat Assistant
                   </h4>
+                  <p style={{ fontSize: '0.78rem', margin: 0, color: 'var(--text-secondary)' }}>
+                    Intelligent document reasoning &amp; conversational memory
+                  </p>
                 </div>
               </div>
 

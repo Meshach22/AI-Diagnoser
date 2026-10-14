@@ -341,9 +341,9 @@ def _query_gemini(
     clean_model_name = raw_model
 
     priority_cascade = [
-        "gemini-3.8-flash",
         "gemini-2.5-flash",
         "gemini-1.5-flash",
+        "gemini-3.8-flash",
         "gemini-flash-latest",
     ]
 
@@ -365,10 +365,12 @@ def _query_gemini(
         pil_image = compress_and_downsample_image(pil_image, max_dim=1024, quality=85)
 
     last_error = None
-    gen_config = {"temperature": 0.1, "max_output_tokens": 4096}
-    req_options = {"timeout": LLM_REQUEST_TIMEOUT_SECONDS}
+    max_tokens = kwargs.get("max_output_tokens", 1024 if "max_output_tokens" in kwargs else 4096)
+    gen_config = {"temperature": 0.1, "max_output_tokens": max_tokens}
 
     for idx, candidate in enumerate(model_candidates):
+        cand_timeout = 15.0 if candidate == "gemini-3.8-flash" else LLM_REQUEST_TIMEOUT_SECONDS
+        cand_req_options = {"timeout": cand_timeout}
         try:
             logger.info("Attempting Gemini inference with candidate '%s'...", candidate)
             try:
@@ -380,9 +382,9 @@ def _query_gemini(
             except Exception:
                 model = genai.GenerativeModel(candidate, generation_config=gen_config)
             if pil_image:
-                response = model.generate_content([prompt, pil_image], request_options=req_options)
+                response = model.generate_content([prompt, pil_image], request_options=cand_req_options)
             else:
-                response = model.generate_content(prompt, request_options=req_options)
+                response = model.generate_content(prompt, request_options=cand_req_options)
 
             # Safely extract text across quick accessor and multi-part content
             extracted_text = None
@@ -469,9 +471,10 @@ def _gemini_chunk_text(chunk: Any) -> str:
 
 def _stream_gemini(
     prompt: str,
-    model_name: str = "gemini-3.8-flash",
+    model_name: str = "gemini-2.5-flash",
     api_key: Optional[str] = None,
     image_data: Optional[Any] = None,
+    **kwargs
 ) -> Iterator[str]:
     """Stream Gemini output token-by-token using generate_content(stream=True).
 
@@ -503,8 +506,8 @@ def _stream_gemini(
         genai.configure(api_key=resolved_key, transport="rest")
         _CACHED_GEMINI_KEY = resolved_key
 
-    priority_cascade = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-flash-latest"]
-    clean_model_name = (model_name or "gemini-3.8-flash").replace("models/", "").strip()
+    priority_cascade = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-3.8-flash", "gemini-flash-latest"]
+    clean_model_name = (model_name or "gemini-2.5-flash").replace("models/", "").strip()
     candidates: List[str] = []
     if clean_model_name and clean_model_name not in _UNAVAILABLE_GEMINI_MODELS:
         candidates.append(clean_model_name)
@@ -517,12 +520,14 @@ def _stream_gemini(
     if pil_image:
         pil_image = compress_and_downsample_image(pil_image, max_dim=1024, quality=85)
 
-    gen_config = {"temperature": 0.1, "max_output_tokens": 4096}
-    req_options = {"timeout": LLM_REQUEST_TIMEOUT_SECONDS}
+    max_tokens = kwargs.get("max_output_tokens", 1024 if "max_output_tokens" in kwargs else 4096)
+    gen_config = {"temperature": 0.1, "max_output_tokens": max_tokens}
     last_error: Optional[BaseException] = None
 
     for candidate in candidates:
         emitted = False
+        cand_timeout = 15.0 if candidate == "gemini-3.8-flash" else LLM_REQUEST_TIMEOUT_SECONDS
+        req_options = {"timeout": cand_timeout}
         try:
             try:
                 model = genai.GenerativeModel(
@@ -547,7 +552,7 @@ def _stream_gemini(
                 raise  # cannot cascade after the user has already received partial output
             err_msg = str(e).lower()
             logger.warning("Gemini stream candidate '%s' failed (%s: %s). Trying next...", candidate, type(e).__name__, e)
-            if any(s in err_msg for s in ("404", "not found", "not available", "no longer available", "400", "unsupported", "429", "quota", "resourceexhausted")):
+            if any(s in err_msg for s in ("404", "not found", "not available", "no longer available", "400", "unsupported", "429", "quota", "resourceexhausted", "timeout", "timed out")):
                 _UNAVAILABLE_GEMINI_MODELS.add(candidate)
             continue
 
@@ -557,7 +562,7 @@ def _stream_gemini(
 def stream_llm(
     prompt: str,
     model_provider: str = "Google Gemini",
-    model_name: Optional[str] = "gemini-3.8-flash",
+    model_name: Optional[str] = "gemini-2.5-flash",
     api_key: Optional[str] = None,
     image_data: Optional[Any] = None,
     **kwargs
@@ -573,7 +578,7 @@ def stream_llm(
     canonical = LLMRouter._canonical_provider(model_provider)
 
     if canonical == "gemini":
-        yield from _stream_gemini(prompt, model_name or "gemini-3.8-flash", api_key, image_data)
+        yield from _stream_gemini(prompt, model_name or "gemini-2.5-flash", api_key, image_data, **kwargs)
         return
 
     future = _STREAM_EXECUTOR.submit(
@@ -1922,7 +1927,7 @@ def summarize_document(
     text: str,
     summary_type: str = "executive",
     provider: str = "Google Gemini",
-    model_name: Optional[str] = "gemini-3.8-flash",
+    model_name: Optional[str] = "gemini-2.5-flash",
     api_key: Optional[str] = None,
     timeout: float = 45.0,
     **kwargs
@@ -1945,7 +1950,7 @@ def answer_question(
     question: str,
     chat_history: Optional[List[Dict[str, Any]]] = None,
     provider: str = "Google Gemini",
-    model_name: Optional[str] = "gemini-3.8-flash",
+    model_name: Optional[str] = "gemini-2.5-flash",
     api_key: Optional[str] = None,
     timeout: float = 45.0,
     **kwargs

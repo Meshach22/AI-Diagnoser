@@ -156,7 +156,7 @@ class ApiClient {
   private async request<T>(
     endpoint: string,
     options: RequestInit = {},
-    timeoutMs: number = 45000
+    timeoutMs: number = 90000
   ): Promise<T> {
     const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
     const headers: Record<string, string> = {
@@ -609,17 +609,16 @@ class ApiClient {
     text: string,
     summaryType: string = 'executive',
     provider: string = 'Google Gemini',
-    modelName?: string
+    modelName: string = 'gemini-2.5-flash'
   ): Promise<string> {
-    const payload: Record<string, any> = { text, summary_type: summaryType, provider };
-    if (modelName) payload.model_name = modelName;
+    const payload: Record<string, any> = { text, summary_type: summaryType, provider, model_name: modelName };
     const data = await this.request<{ result: string }>(
       '/api/v1/documents/summarize',
       {
         method: 'POST',
         body: JSON.stringify(payload),
       },
-      60000
+      120000
     );
     return data.result;
   }
@@ -629,7 +628,7 @@ class ApiClient {
     question: string,
     provider: string = 'Google Gemini',
     chatHistory: Array<{ role: string; content: string }> = [],
-    modelName?: string
+    modelName: string = 'gemini-2.5-flash'
   ): Promise<string> {
     const payload: Record<string, any> = {
       text,
@@ -638,17 +637,138 @@ class ApiClient {
       provider,
       chat_history: chatHistory,
       history: chatHistory,
+      model_name: modelName,
     };
-    if (modelName) payload.model_name = modelName;
     const data = await this.request<{ result: string }>(
       '/api/v1/documents/ask',
       {
         method: 'POST',
         body: JSON.stringify(payload),
       },
-      60000
+      120000
     );
     return data.result;
+  }
+
+  /**
+   * Stream Ask-the-Document Q&A completion token-by-token using Server-Sent Events.
+   * Calls /api/v1/documents/ask/stream (with automatic fallback to /api/v1/router/query/stream).
+   */
+  public async streamDocumentQuestion(
+    text: string,
+    question: string,
+    provider: string = 'Google Gemini',
+    modelName: string = 'gemini-2.5-flash',
+    chatHistory: Array<{ role: string; content: string }> = [],
+    onToken: (token: string) => void,
+    options: { signal?: AbortSignal; idleTimeoutMs?: number } = {}
+  ): Promise<{ provider: string; latencyMs: number }> {
+    const idleTimeoutMs = options.idleTimeoutMs ?? 90000;
+    const controller = new AbortController();
+    if (options.signal) {
+      if (options.signal.aborted) controller.abort();
+      options.signal.addEventListener('abort', () => controller.abort());
+    }
+
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    let timedOut = false;
+    const armIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, idleTimeoutMs);
+    };
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    };
+    const token = this.getToken();
+    if (token && token.trim()) headers['Authorization'] = `Bearer ${token.trim()}`;
+
+    armIdleTimer();
+    const payload = {
+      text,
+      question,
+      query: question,
+      provider,
+      model_name: modelName,
+      chat_history: chatHistory,
+      history: chatHistory,
+    };
+
+    try {
+      const streamUrl = API_BASE ? `${API_BASE}/api/v1/documents/ask/stream` : '/api/v1/documents/ask/stream';
+      const res = await fetch(streamUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        credentials: 'include',
+        signal: controller.signal,
+      });
+
+      if (!res.ok || !res.body) {
+        // Fallback to router stream with structured context prompt
+        const capped = text.slice(0, 30000);
+        const routerPrompt = `System Context: The user has uploaded the following document context for analysis:\n---\n${capped}\n---\nUser Query: ${question}`;
+        return await this.streamRouter(routerPrompt, provider, modelName, onToken, options);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      let activeProvider = provider;
+      let latencyMs = 0;
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        armIdleTimer();
+        buffer += decoder.decode(value, { stream: true });
+
+        let boundaryIndex = buffer.indexOf('\n\n');
+        while (boundaryIndex !== -1) {
+          const rawEvent = buffer.slice(0, boundaryIndex).trim();
+          buffer = buffer.slice(boundaryIndex + 2);
+
+          if (rawEvent) {
+            let eventType = 'message';
+            let dataStr = '';
+            for (const line of rawEvent.split('\n')) {
+              if (line.startsWith(':')) continue;
+              if (line.startsWith('event:')) eventType = line.slice(6).trim();
+              else if (line.startsWith('data:')) dataStr = line.slice(5).trim();
+            }
+
+            if (dataStr) {
+              try {
+                const parsed = JSON.parse(dataStr);
+                if (eventType === 'token' && typeof parsed.token === 'string') {
+                  onToken(parsed.token);
+                } else if (eventType === 'done') {
+                  if (parsed.provider) activeProvider = parsed.provider;
+                  if (typeof parsed.latency_ms === 'number') latencyMs = parsed.latency_ms;
+                } else if (eventType === 'error') {
+                  throw new Error(parsed.message || 'Stream processing error');
+                }
+              } catch (parseErr: any) {
+                if (eventType === 'error') throw parseErr;
+              }
+            }
+          }
+          boundaryIndex = buffer.indexOf('\n\n');
+        }
+      }
+      return { provider: activeProvider, latencyMs };
+    } catch (err: any) {
+      if (timedOut) {
+        throw new Error('Document stream timed out waiting for backend response.');
+      }
+      throw err;
+    } finally {
+      if (idleTimer) clearTimeout(idleTimer);
+    }
   }
 
   // --- Data Analytics ---

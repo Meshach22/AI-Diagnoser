@@ -199,12 +199,12 @@ def generate_document_summary(
     doc_text: str,
     summary_type: str = "executive",
     model_provider: str = "Google Gemini",
-    model_name: str = "gemini-3.8-flash",
+    model_name: str = "gemini-2.5-flash",
     api_key: Optional[str] = None,
-    timeout: float = 45.0,
+    timeout: float = 60.0,
     **kwargs
 ) -> str:
-    """Generate structured summary from document text using the LLM router with 45.0s timeout."""
+    """Generate structured summary from document text using the LLM router with fast-path defaults."""
     if not doc_text.strip():
         return "⚠️ Document text is empty. Please upload a valid document."
 
@@ -228,6 +228,9 @@ def generate_document_summary(
     else:
         final_prompt = f"{template}\n\n{escaped_text}"
 
+    # Enforce concise response limits for rapid round-trip delivery
+    kwargs.setdefault("max_output_tokens", 1024)
+
     return query_llm(
         prompt=final_prompt,
         model_provider=model_provider,
@@ -246,12 +249,12 @@ def ask_document_question(
     question: str,
     chat_history: Optional[List[Dict[str, Any]]] = None,
     model_provider: str = "Google Gemini",
-    model_name: str = "gemini-3.8-flash",
+    model_name: str = "gemini-2.5-flash",
     api_key: Optional[str] = None,
-    timeout: float = 45.0,
+    timeout: float = 60.0,
     **kwargs
 ) -> str:
-    """Query the document text to answer a specific user question using NotebookLM conversational grounding with 45.0s timeout."""
+    """Query the document text to answer a specific user question using NotebookLM conversational grounding with fast-path defaults."""
     if not question.strip():
         return "Please enter a valid question."
 
@@ -267,6 +270,9 @@ def ask_document_question(
         user_query=escaped_query,
         chat_history=chat_history or []
     )
+
+    # Enforce strict token limits for rapid completion without latency stalls
+    kwargs.setdefault("max_output_tokens", 1024)
 
     return query_llm(
         prompt=prompt,
