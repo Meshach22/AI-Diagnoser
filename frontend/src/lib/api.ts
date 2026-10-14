@@ -39,6 +39,7 @@ export interface ChatResponse {
 }
 
 export interface DocumentParseResult {
+  id?: string;
   filename: string;
   file_type: string;
   page_count: number;
@@ -54,6 +55,7 @@ export interface DocumentParseResult {
 }
 
 export interface DocumentIngestApiResponse {
+  id?: string;
   filename: string;
   file_type: string;
   word_count?: number;
@@ -576,6 +578,7 @@ class ApiClient {
       : fullText.trim().length > 0;
 
     return {
+      id: raw.id,
       filename: raw.filename || 'document',
       file_type: (raw.file_type || 'TXT').toUpperCase(),
       page_count: pageCount,
@@ -605,11 +608,40 @@ class ApiClient {
     return this.normalizeDocumentParseResult(raw);
   }
 
+  public async getUserDocuments(): Promise<DocumentParseResult[]> {
+    try {
+      const data = await this.request<{ documents: any[]; count: number }>('/api/v1/documents');
+      if (data && Array.isArray(data.documents)) {
+        return data.documents.map(d => this.normalizeDocumentParseResult(d));
+      }
+      return [];
+    } catch (err) {
+      console.warn('Failed to fetch user documents library:', err);
+      return [];
+    }
+  }
+
+  public async getDocuments(): Promise<DocumentParseResult[]> {
+    return this.getUserDocuments();
+  }
+
+  public async deleteUserDocument(docId: string): Promise<boolean> {
+    try {
+      await this.request(`/api/v1/documents/${encodeURIComponent(docId)}`, {
+        method: 'DELETE',
+      });
+      return true;
+    } catch (err) {
+      console.warn(`Failed to delete document ${docId}:`, err);
+      return false;
+    }
+  }
+
   public async summarizeDocument(
     text: string,
     summaryType: string = 'executive',
     provider: string = 'Google Gemini',
-    modelName: string = 'gemini-2.5-flash'
+    modelName: string = 'gemini-3.8-flash'
   ): Promise<string> {
     const payload: Record<string, any> = { text, summary_type: summaryType, provider, model_name: modelName };
     const data = await this.request<{ result: string }>(
@@ -628,7 +660,7 @@ class ApiClient {
     question: string,
     provider: string = 'Google Gemini',
     chatHistory: Array<{ role: string; content: string }> = [],
-    modelName: string = 'gemini-2.5-flash'
+    modelName: string = 'gemini-3.8-flash'
   ): Promise<string> {
     const payload: Record<string, any> = {
       text,
@@ -658,7 +690,7 @@ class ApiClient {
     text: string,
     question: string,
     provider: string = 'Google Gemini',
-    modelName: string = 'gemini-2.5-flash',
+    modelName: string = 'gemini-3.8-flash',
     chatHistory: Array<{ role: string; content: string }> = [],
     onToken: (token: string) => void,
     options: { signal?: AbortSignal; idleTimeoutMs?: number } = {}

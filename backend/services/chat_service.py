@@ -62,11 +62,11 @@ class ChatService:
         if not prompt or not prompt.strip():
             raise ValueError("Query prompt string is required.")
 
-        # Ensure provider 'Google Gemini' routes directly to gemini-2.5-flash as active primary fast-path model
-        if provider in ("Google Gemini", "gemini", "gemini-2.5-flash", "gemini-3.8-flash"):
+        # Ensure provider 'Google Gemini' routes directly to gemini-3.8-flash as active primary strategic model
+        if provider in ("Google Gemini", "gemini", "gemini-3.8-flash", "gemini-2.5-flash"):
             provider = "Google Gemini"
             if not model_name:
-                model_name = "gemini-2.5-flash"
+                model_name = "gemini-3.8-flash"
 
         try:
             result = query_llm(
@@ -113,10 +113,10 @@ class ChatService:
         if not prompt or not prompt.strip():
             raise ValueError("Query prompt string is required.")
 
-        if provider in ("Google Gemini", "gemini", "gemini-2.5-flash", "gemini-3.8-flash"):
+        if provider in ("Google Gemini", "gemini", "gemini-3.8-flash", "gemini-2.5-flash"):
             provider = "Google Gemini"
             if not model_name:
-                model_name = "gemini-2.5-flash"
+                model_name = "gemini-3.8-flash"
 
         return stream_llm(
             prompt=prompt.strip(),

@@ -50,6 +50,7 @@ class DocumentAskRequest(BaseModel):
 
 class DocumentIngestResponse(BaseModel):
     """Response containing parsed document structure."""
+    id: Optional[str] = None
     filename: str
     file_type: str
     word_count: int

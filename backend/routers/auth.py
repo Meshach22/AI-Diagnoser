@@ -36,7 +36,7 @@ from backend.services.auth_service import (
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 security = HTTPBearer(auto_error=False)
 
-ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200  # 30 days
+ACCESS_TOKEN_EXPIRE_MINUTES: int = 525600  # 1 full year (525,600 minutes)
 
 
 def extract_token(

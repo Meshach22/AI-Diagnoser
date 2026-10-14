@@ -1,7 +1,7 @@
 // frontend/src/components/auth/AuthModal.tsx
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 import { useAuth } from '@/context/AuthContext';
 import { X, Lock, Mail, User as UserIcon, AlertCircle, ArrowRight } from 'lucide-react';
@@ -42,6 +42,19 @@ export const AuthModal: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [googleSubmitting, setGoogleSubmitting] = useState(false);
 
+  // Restore remembered email on mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const saved = localStorage.getItem('ai_diagnoser_saved_email');
+      if (saved) {
+        setEmail(saved);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
   if (!isAuthModalOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -63,6 +76,12 @@ export const AuthModal: React.FC = () => {
           throw new Error('Password must be at least 12 characters long.');
         }
         await register(email.trim(), name.trim(), password);
+      }
+
+      if (rememberMe) {
+        localStorage.setItem('ai_diagnoser_saved_email', email.trim());
+      } else {
+        localStorage.removeItem('ai_diagnoser_saved_email');
       }
     } catch (err: any) {
       setError(err.message || 'Authentication request failed.');
@@ -98,6 +117,9 @@ export const AuthModal: React.FC = () => {
     try {
       // Direct auto-provisioning login via SQLite backend
       await login(targetEmail, targetPass);
+      if (rememberMe) {
+        localStorage.setItem('ai_diagnoser_saved_email', targetEmail);
+      }
     } catch (err: any) {
       setError(err.message || 'Auto-login failed. Please enter your password below.');
     } finally {

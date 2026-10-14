@@ -27,6 +27,7 @@ export interface UploadedDoc {
   id: string;
   filename: string;
   full_text: string;
+  preview?: string;
   word_count: number;
   page_count: number;
   format: string;
@@ -129,6 +130,28 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
           if (backendMem && Array.isArray(backendMem.uploadedDocs) && backendMem.uploadedDocs.length > 0) {
             restoredData = backendMem;
             localStorage.setItem(memKey, JSON.stringify(backendMem));
+          } else {
+            // Also check SQLite user_documents table
+            const serverDocs = await api.getUserDocuments();
+            if (serverDocs && serverDocs.length > 0) {
+              const mappedDocs: UploadedDoc[] = serverDocs.map((d: any) => ({
+                id: d.id,
+                filename: d.filename,
+                full_text: d.full_text || d.preview || '',
+                word_count: d.word_count || 0,
+                page_count: d.page_count || 1,
+                format: d.format || 'text',
+                uploadedAt: new Date(d.created_at ? d.created_at * 1000 : Date.now()).toISOString(),
+              }));
+              restoredData = {
+                uploadedDocs: mappedDocs,
+                messages: (restoredData && restoredData.messages) || [],
+                summary: (restoredData && restoredData.summary) || null,
+                activeDocId: 'all',
+                summaryType: 'executive',
+              };
+              localStorage.setItem(memKey, JSON.stringify(restoredData));
+            }
           }
         } catch {
           // ignore
@@ -358,14 +381,29 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
     setChatLoading(true);
 
     let streamedText = '';
-    const cappedContext = docText.slice(0, 30000);
-    const promptToSend = `Document Context:\n${cappedContext}\n\nUser Question:\n${query}`;
+    let promptToSend = query;
+
+    // Multi-source cross-document grounding: bundle ALL uploaded documents
+    if (uploadedDocs.length > 0) {
+      const sourcesBlock = uploadedDocs
+        .map((doc, idx) => {
+          const title = doc.filename || `Source_${idx + 1}`;
+          const content = (doc.full_text || doc.preview || '').trim().slice(0, 25000);
+          return `--- Source ${idx + 1}: ${title} ---\n${content}`;
+        })
+        .join('\n\n');
+
+      promptToSend = `[GROUNDED SOURCES KNOWLEDGE BASE]\n${sourcesBlock}\n-------------------------------\nUser Query: ${query}`;
+    } else {
+      const cappedContext = docText.slice(0, 30000);
+      promptToSend = `[GROUNDED SOURCES KNOWLEDGE BASE]\n--- Source 1: Active Document ---\n${cappedContext}\n-------------------------------\nUser Query: ${query}`;
+    }
 
     try {
       await api.streamRouter(
         promptToSend,
         'Google Gemini',
-        'gemini-2.5-flash',
+        'gemini-3.8-flash',
         (token: string) => {
           streamedText += token;
           setMessages((prev) =>
@@ -388,7 +426,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
     } catch (err: any) {
       if (!streamedText) {
         try {
-          const answer = await api.askDocument(docText, query, 'Google Gemini', undefined, 'gemini-2.5-flash');
+          const answer = await api.askDocument(docText, query, 'Google Gemini', undefined, 'gemini-3.8-flash');
           setMessages((prev) => {
             const updated = prev.map((msg) =>
               msg.id === assistantMsgId ? { ...msg, content: answer } : msg

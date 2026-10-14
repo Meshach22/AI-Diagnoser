@@ -3,6 +3,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { api } from '@/lib/api';
 import {
   LayoutDashboard,
   MessageSquare,
@@ -39,7 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed.uploadedDocs)) {
-          setHistoryDocs(parsed.uploadedDocs.slice(0, 5));
+          setHistoryDocs(parsed.uploadedDocs.slice(0, 8));
         }
         if (Array.isArray(parsed.messages)) {
           const userQueries = parsed.messages.filter((m: any) => m.role === 'user').slice(-4).reverse();
@@ -48,6 +49,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
       }
     } catch {
       // ignore
+    }
+
+    if (user?.email) {
+      api.getDocuments().then((serverDocs) => {
+        if (serverDocs && serverDocs.length > 0) {
+          setHistoryDocs((prev) => {
+            const combined = [...serverDocs, ...prev];
+            const uniqueMap = new Map<string, { id: string; filename: string }>();
+            combined.forEach((d: any) => {
+              const docId = (d && (d.id || d.filename)) ? String(d.id || d.filename) : '';
+              if (docId && !uniqueMap.has(docId)) {
+                uniqueMap.set(docId, { id: docId, filename: d.filename || 'document' });
+              }
+            });
+            return Array.from(uniqueMap.values()).slice(0, 10);
+          });
+        }
+      }).catch(() => {});
     }
   }, [user, activeTab]);
 

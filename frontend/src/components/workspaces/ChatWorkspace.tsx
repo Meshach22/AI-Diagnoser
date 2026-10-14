@@ -46,7 +46,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 }) => {
   const { user, openAuthModal } = useAuth();
   const [selectedProvider, setSelectedProvider] = useState('Google Gemini');
-  const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
+  const [selectedModel, setSelectedModel] = useState('gemini-3.8-flash');
   const [inputPrompt, setInputPrompt] = useState(initialPrompt);
   const [loading, setLoading] = useState(false);
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
@@ -54,7 +54,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     {
       id: '1',
       sender: 'assistant',
-      text: 'Hello! I am your AI Chat Assistant. You can ask me to evaluate metrics, synthesize unstructured documents, or explain trends across your operations.',
+      text: 'Hello! I am your AI Chat Assistant powered by Gemini 3.8 Flash. I can synthesize cross-document insights across all your uploaded files, identify hidden correlations, and provide strategic recommendations.',
       timestamp: 'Just now',
     },
   ]);
@@ -126,33 +126,25 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     setLoading(true);
     setError(null);
 
-    // Resolve document context to inject cleanly for Gemini 3.8 Flash
+    // Multi-Source Grounding: Bundle ALL currently uploaded documents belonging to the user
     let promptToSend = userMsg.text;
-    let docToUse = activeDocContext;
+    const docsWithText = persistedDocs.filter(
+      (d) => (d.full_text || d.preview || '').trim().length > 0
+    );
 
-    if (persistedDocs.length > 0) {
-      const q = userMsg.text.toLowerCase();
-      // Match document if filename or base name is referenced in query (e.g. "Shalom resume.pdf", "resume")
-      const matched = persistedDocs.find((d) => {
-        if (!d.filename) return false;
-        const baseName = d.filename.toLowerCase().replace(/\.[^/.]+$/, '');
-        return q.includes(d.filename.toLowerCase()) || (baseName.length >= 3 && q.includes(baseName));
-      });
-      if (matched) {
-        docToUse = matched;
-      } else if (!docToUse) {
-        docToUse = persistedDocs[0];
-      }
-    }
+    if (docsWithText.length > 0) {
+      const sourcesBlock = docsWithText
+        .map((doc, idx) => {
+          const title = doc.filename || `Source_${idx + 1}`;
+          const content = (doc.full_text || doc.preview || '').trim().slice(0, 25000);
+          return `--- Source ${idx + 1}: ${title} ---\n${content}`;
+        })
+        .join('\n\n');
 
-    if (docToUse && (docToUse.full_text || docToUse.preview)) {
-      const docFilename = docToUse.filename || 'Uploaded Document';
-      const docRaw = docToUse.full_text || docToUse.preview || '';
-      const cappedDocText = docRaw.slice(0, 25000);
-      promptToSend = `System Context: The user has uploaded the following document: ${docFilename}\n---\n${cappedDocText}\n---\nUser Query: ${userMsg.text}`;
+      promptToSend = `[GROUNDED SOURCES KNOWLEDGE BASE]\n${sourcesBlock}\n-------------------------------\nUser Query: ${userMsg.text}`;
     } else if (activeContextText && activeContextText.trim()) {
-      const cappedContext = activeContextText.trim().slice(0, 25000);
-      promptToSend = `System Context: The user has uploaded the following document: ${activeDocContext?.filename || 'Document Context'}\n---\n${cappedContext}\n---\nUser Query: ${userMsg.text}`;
+      const cappedContext = activeContextText.trim().slice(0, 30000);
+      promptToSend = `[GROUNDED SOURCES KNOWLEDGE BASE]\n--- Source 1: Active Context ---\n${cappedContext}\n-------------------------------\nUser Query: ${userMsg.text}`;
     }
 
     const assistantMsgId = (Date.now() + 1).toString();
@@ -175,7 +167,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       const streamRes = await api.streamRouter(
         promptToSend,
         selectedProvider,
-        selectedProvider === 'Google Gemini' ? (selectedModel || 'gemini-2.5-flash') : undefined,
+        selectedModel || 'gemini-3.8-flash',
         (token: string) => {
           streamedText += token;
           setMessages((prev) =>
@@ -206,7 +198,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           const resp: ChatResponse = await api.queryRouter(
             promptToSend,
             selectedProvider,
-            selectedProvider === 'Google Gemini' ? (selectedModel || 'gemini-2.5-flash') : undefined
+            selectedProvider === 'Google Gemini' ? (selectedModel || 'gemini-3.8-flash') : undefined
           );
           const responseText = resp.result || resp.response;
           setMessages((prev) =>
@@ -261,23 +253,28 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-            Inference Engine:
+            Model:
           </label>
           <select
             className="select"
-            value={selectedProvider}
+            value={selectedModel}
             onChange={(e) => {
-              const val = e.target.value;
-              setSelectedProvider(val);
-              if (val === 'Google Gemini') {
-                setSelectedModel('gemini-2.5-flash');
+              const modelId = e.target.value;
+              setSelectedModel(modelId);
+              if (modelId.startsWith('gemini')) {
+                setSelectedProvider('Google Gemini');
+              } else if (modelId.startsWith('llama')) {
+                setSelectedProvider('Groq');
+              } else if (modelId.startsWith('gpt')) {
+                setSelectedProvider('OpenAI');
               }
             }}
             style={{ width: 'auto', padding: '6px 12px', fontSize: '0.85rem' }}
           >
-            <option value="Google Gemini">Google Gemini 2.5 Flash (Fast-Path)</option>
-            <option value="Groq">Groq LLaMA 3.3 (Fast)</option>
-            <option value="OpenAI">OpenAI GPT-4o</option>
+            <option value="gemini-3.8-flash">Google Gemini 3.8 Flash</option>
+            <option value="gemini-2.5-flash">Google Gemini 2.5 Flash</option>
+            <option value="llama-3.3-70b-versatile">Groq LLaMA 3.3 (Fast)</option>
+            <option value="gpt-4o">OpenAI GPT-4o</option>
           </select>
         </div>
       </div>

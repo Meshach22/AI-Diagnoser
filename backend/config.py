@@ -90,7 +90,9 @@ class BackendSettings(BaseSettings):
     # Persistent Secret Key & Token Lifespan (survives backend reloads and prevents invalidation)
     SECRET_KEY: str = os.getenv("SECRET_KEY") or os.getenv("JWT_SECRET") or "ai-diagnoser-production-super-secret-key-2026"
     JWT_SECRET: str = os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY") or "ai-diagnoser-production-super-secret-key-2026"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200  # 30 days (43,200 minutes)
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 525600
+    AUTH_SESSION_TTL_MINUTES: int = 525600
+    AUTH_SESSION_IDLE_MINUTES: int = 525600
 
     # Google OAuth 2.0 (Google Identity Services). The backend verifies every ID token's
     # signature, expiry, issuer and audience against this OAuth Web Client ID.
@@ -133,8 +135,8 @@ class BackendSettings(BaseSettings):
         self.AUTH_DB_PATH = os.path.join(default_dir, "auth.db")
         return self
 
-    AUTH_SESSION_TTL_MINUTES: int = 43200   # 30-day absolute session lifetime (survives restarts)
-    AUTH_SESSION_IDLE_MINUTES: int = 43200  # 30-day idle timeout
+    AUTH_SESSION_TTL_MINUTES: int = 525600   # 1 full year session lifetime (survives restarts)
+    AUTH_SESSION_IDLE_MINUTES: int = 525600  # 1 full year idle timeout
     AUTH_MAX_FAILED_ATTEMPTS: int = 5          # per-account failures before lockout
     AUTH_LOCKOUT_MINUTES: int = 15             # lockout window / duration
     AUTH_ALLOW_SIGNUP: bool = False            # self-service registration (off by default)

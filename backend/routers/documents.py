@@ -35,11 +35,12 @@ async def upload_document(
     file: UploadFile = File(...),
     session: SessionInfo = Depends(get_current_session),
 ):
-    """Accepts PDF, DOCX, TXT, or MD files, delegates to DocumentService for parsing."""
+    """Accepts PDF, DOCX, TXT, or MD files, delegates to DocumentService for parsing and persistence."""
     try:
         content = await read_bounded_file(file, max_bytes=settings.MAX_UPLOAD_SIZE_BYTES)
         filename = sanitize_filename(file.filename, default_name="document.txt")
-        doc_data = await run_in_threadpool(DocumentService.ingest_document, content, filename)
+        user_email = session.email if session else None
+        doc_data = await run_in_threadpool(DocumentService.ingest_document, content, filename, user_email=user_email)
         return DocumentIngestResponse(**doc_data)
     except HTTPException:
         raise
@@ -53,6 +54,34 @@ async def upload_document(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to process document: {str(exc)}"
         )
+
+
+@router.get("", summary="List user's uploaded documents library")
+@router.get("/", summary="List user's uploaded documents library (alias)")
+async def list_documents(
+    session: SessionInfo = Depends(get_current_session),
+):
+    """Returns list of documents belonging to the authenticated user from SQLite filtered by user_email."""
+    user_email = session.email if session else None
+    if not user_email:
+        return {"documents": [], "count": 0}
+    docs = await run_in_threadpool(DocumentService.get_documents_by_user, user_email)
+    return {"documents": docs, "count": len(docs)}
+
+
+@router.delete("/{doc_id}", summary="Delete document from user's library")
+async def delete_document(
+    doc_id: str,
+    session: SessionInfo = Depends(get_current_session),
+):
+    """Deletes a document by ID belonging to the authenticated user."""
+    user_email = session.email if session else None
+    if not user_email:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
+    deleted = await run_in_threadpool(DocumentService.delete_user_document, user_email, doc_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found or unauthorized.")
+    return {"status": "success", "doc_id": doc_id}
 
 
 @router.post("/summarize", response_model=DocumentAnalysisResponse, summary="Generate document summary")
@@ -107,7 +136,7 @@ async def ask_document_stream(
         )
 
     provider_label = req.provider or "Google Gemini"
-    model_name = req.model_name or "gemini-2.5-flash"
+    model_name = req.model_name or "gemini-3.8-flash"
 
     try:
         token_iter: Iterator[str] = DocumentService.stream_question(
@@ -176,7 +205,7 @@ async def ask_document(
             question=req.question,
             chat_history=req.chat_history or [],
             provider=req.provider or "Google Gemini",
-            model_name=req.model_name or "gemini-2.5-flash",
+            model_name=req.model_name or "gemini-3.8-flash",
             api_key=req.api_key,
         )
         return DocumentAnalysisResponse(**data)
