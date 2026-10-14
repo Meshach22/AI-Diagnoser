@@ -4,22 +4,13 @@
 import React, { useState } from 'react';
 import { Header } from '@/components/layout/Header';
 import { Sidebar, WorkspaceTab } from '@/components/layout/Sidebar';
-import { HomeWorkspace } from '@/components/workspaces/HomeWorkspace';
 import { ChatWorkspace } from '@/components/workspaces/ChatWorkspace';
-import { UnifiedWorkspace } from '@/components/workspaces/UnifiedWorkspace';
-import { SystemWorkspace } from '@/components/workspaces/SystemWorkspace';
+import { DocWorkspace } from '@/components/workspaces/DocWorkspace';
 
 export default function AppHome() {
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>('home');
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>('chat');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [selectedFileType, setSelectedFileType] = useState<'data' | 'document' | 'vision'>('data');
   const [activeChatPrompt, setActiveChatPrompt] = useState<string>('');
-
-  const handleFileLoaded = (file: File, type: 'data' | 'document' | 'vision') => {
-    setSelectedFile(file);
-    setSelectedFileType(type);
-    setActiveTab('unified');
-  };
 
   const handleQuerySubmit = (query: string) => {
     setActiveChatPrompt(query);
@@ -27,23 +18,15 @@ export default function AppHome() {
   };
 
   return (
-    <div className="app-container">
+    <div className="app-container w-full max-w-full overflow-hidden">
       {/* Left Sidebar */}
       <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
 
       {/* Main Viewport */}
-      <div className="main-layout">
+      <div className="main-layout w-full max-w-full overflow-hidden">
         <Header />
 
-        <main className="content-viewport">
-          {activeTab === 'home' && (
-            <HomeWorkspace
-              onSelectTab={setActiveTab}
-              onFileLoaded={handleFileLoaded}
-              onQuerySubmit={handleQuerySubmit}
-            />
-          )}
-
+        <main className="content-viewport w-full max-w-full overflow-hidden">
           {activeTab === 'chat' && (
             <ChatWorkspace
               initialPrompt={activeChatPrompt}
@@ -51,15 +34,9 @@ export default function AppHome() {
           )}
 
           {activeTab === 'unified' && (
-            <UnifiedWorkspace
+            <DocWorkspace
               initialFile={selectedFile}
-              initialType={selectedFileType}
-              onSendToChat={handleQuerySubmit}
             />
-          )}
-
-          {activeTab === 'system' && (
-            <SystemWorkspace />
           )}
         </main>
       </div>

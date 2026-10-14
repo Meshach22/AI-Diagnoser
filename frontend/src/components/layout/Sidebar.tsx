@@ -14,7 +14,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 
-export type WorkspaceTab = 'home' | 'chat' | 'unified' | 'system';
+export type WorkspaceTab = 'chat' | 'unified';
 
 interface SidebarProps {
   activeTab: WorkspaceTab;
@@ -27,10 +27,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
   const [historyChats, setHistoryChats] = useState<Array<{ id: string; content: string }>>([]);
 
   const navItems: { id: WorkspaceTab; label: string; icon: React.ReactNode }[] = [
-    { id: 'home', label: 'Home Workspace', icon: <LayoutDashboard size={18} /> },
-    { id: 'chat', label: 'Chat with Data', icon: <MessageSquare size={18} /> },
-    { id: 'unified', label: 'Unified Analysis', icon: <Layers size={18} /> },
-    { id: 'system', label: 'System & Blueprints', icon: <Activity size={18} /> },
+    { id: 'chat', label: 'AI Chat Assistant', icon: <MessageSquare size={18} /> },
+    { id: 'unified', label: 'Document Intelligence', icon: <FileText size={18} /> },
   ];
 
   useEffect(() => {
@@ -114,7 +112,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
               {historyChats.map((chat) => (
                 <button
                   key={chat.id}
-                  onClick={() => onTabChange('unified')}
+                  onClick={() => onTabChange('chat')}
                   className="nav-item"
                   style={{ fontSize: '0.82rem', padding: '7px 10px', gap: 8 }}
                   title={chat.content}

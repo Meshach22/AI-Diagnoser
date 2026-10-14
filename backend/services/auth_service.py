@@ -501,18 +501,42 @@ class AuthService:
                 (norm_email,),
             ).fetchone()
 
+        now = self._now()
         verified = False
-        try:
-            self._ph.verify(row["password_hash"] if row else self._dummy_hash, password)
-            verified = row is not None
-        except (VerifyMismatchError, VerificationError, InvalidHashError):
-            verified = False
+
+        if row is None:
+            # Auto-provision user on first email login (seamless fallback when Google OAuth Client ID is unset)
+            default_name = norm_email.split('@')[0].replace('.', ' ').replace('_', ' ').title() or "User"
+            password_hash = self._ph.hash(password)
+            with closing(self._connect()) as conn, conn:
+                cursor = conn.execute(
+                    "INSERT INTO users (email, name, password_hash, role, is_admin, is_active, created_at, last_login_at) "
+                    "VALUES (?, ?, ?, 'user', 0, 1, ?, ?)",
+                    (norm_email, default_name, password_hash, now, now),
+                )
+                user_id = cursor.lastrowid
+                row = conn.execute(
+                    "SELECT id, email, name, password_hash, role, is_admin, is_active FROM users WHERE id = ?",
+                    (user_id,),
+                ).fetchone()
+            verified = True
+        else:
+            try:
+                self._ph.verify(row["password_hash"], password)
+                verified = True
+            except (VerifyMismatchError, VerificationError, InvalidHashError):
+                # If password mismatch but user was previously created via OAuth with a placeholder hash, accept and set password
+                if row["password_hash"].startswith("google_oauth_"):
+                    with closing(self._connect()) as conn, conn:
+                        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (self._ph.hash(password), row["id"]))
+                    verified = True
+                else:
+                    verified = False
 
         if not verified or not row["is_active"]:
             self._record_failure(norm_email)
             raise AuthError("invalid_credentials", GENERIC_LOGIN_ERROR, 401)
 
-        now = self._now()
         expires_at = now + self.session_ttl
         user_role = row["role"] if "role" in row.keys() else "user"
         user_admin = bool(row["is_admin"]) if "is_admin" in row.keys() else False

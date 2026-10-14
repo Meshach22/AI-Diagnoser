@@ -209,10 +209,10 @@ export const HomeWorkspace: React.FC<HomeWorkspaceProps> = ({
         />
         <UploadCloud className="dropzone-icon" />
         <h3 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 6, color: 'var(--text-primary)' }}>
-          Drop datasets, reports, or charts here to begin analysis
+          Drop documents or spreadsheets here to begin analysis
         </h3>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: 18 }}>
-          Supports CSV, Excel, PDF, Word, Plaintext, and Image telemetry
+          Supports PDF, Word (DOCX), Plaintext, CSV, and Excel
         </p>
         <button
           type="button"
@@ -229,7 +229,7 @@ export const HomeWorkspace: React.FC<HomeWorkspaceProps> = ({
           <input
             type="text"
             className="input"
-            placeholder="Ask a diagnostic question about your data or operational files..."
+            placeholder="Ask a question about your documents, operations, or files..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             style={{ fontSize: '0.95rem', padding: '12px 18px' }}

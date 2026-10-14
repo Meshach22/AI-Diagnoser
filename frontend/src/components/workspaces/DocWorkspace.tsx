@@ -344,39 +344,75 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
-    const currentThread = [...messages, userMsg];
+    const assistantMsgId = `assistant-${Date.now()}`;
+    const initialAssistantMsg: ChatMessage = {
+      id: assistantMsgId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    const currentThread = [...messages, userMsg, initialAssistantMsg];
     setMessages(currentThread);
     setDocQuestion('');
     setChatLoading(true);
 
+    let streamedText = '';
+    const cappedContext = docText.slice(0, 30000);
+    const promptToSend = `Document Context:\n${cappedContext}\n\nUser Question:\n${query}`;
+
     try {
-      const historyPayload = messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+      await api.streamRouter(
+        promptToSend,
+        'Google Gemini',
+        'gemini-2.5-flash',
+        (token: string) => {
+          streamedText += token;
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantMsgId ? { ...msg, content: streamedText } : msg
+            )
+          );
+        }
+      );
 
-      const answer = await api.askDocument(docText, query, 'Google Gemini', historyPayload, 'gemini-flash-latest');
-
-      const assistantMsg: ChatMessage = {
-        id: `assistant-${Date.now()}`,
-        role: 'assistant',
-        content: answer,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-
-      const finalThread = [...currentThread, assistantMsg];
-      setMessages(finalThread);
-      persistMemory(uploadedDocs, finalThread, summary, activeDocId, summaryType);
+      setMessages((prev) => {
+        const updated = prev.map((msg) =>
+          msg.id === assistantMsgId
+            ? { ...msg, content: streamedText || 'No response returned from model.' }
+            : msg
+        );
+        persistMemory(uploadedDocs, updated, summary, activeDocId, summaryType);
+        return updated;
+      });
     } catch (err: any) {
-      const errorMsg: ChatMessage = {
-        id: `err-${Date.now()}`,
-        role: 'assistant',
-        content: `⚠️ Failed to get answer: ${err.message || 'Error communicating with model.'}`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      const finalThread = [...currentThread, errorMsg];
-      setMessages(finalThread);
-      persistMemory(uploadedDocs, finalThread, summary, activeDocId, summaryType);
+      if (!streamedText) {
+        try {
+          const answer = await api.askDocument(docText, query, 'Google Gemini', undefined, 'gemini-2.5-flash');
+          setMessages((prev) => {
+            const updated = prev.map((msg) =>
+              msg.id === assistantMsgId ? { ...msg, content: answer } : msg
+            );
+            persistMemory(uploadedDocs, updated, summary, activeDocId, summaryType);
+            return updated;
+          });
+        } catch (unaryErr: any) {
+          setMessages((prev) => {
+            const updated = prev.map((msg) =>
+              msg.id === assistantMsgId
+                ? { ...msg, content: `⚠️ Failed to get answer: ${unaryErr.message || err.message}` }
+                : msg
+            );
+            persistMemory(uploadedDocs, updated, summary, activeDocId, summaryType);
+            return updated;
+          });
+        }
+      } else {
+        setMessages((prev) => {
+          persistMemory(uploadedDocs, prev, summary, activeDocId, summaryType);
+          return prev;
+        });
+      }
     } finally {
       setChatLoading(false);
     }

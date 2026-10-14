@@ -96,7 +96,7 @@ export const DataWorkspace: React.FC<DataWorkspaceProps> = ({
                 {file ? file.name : 'Dataset Explorer & Profiler'}
               </h3>
               <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                {file ? `${(file.size / 1024).toFixed(1)} KB • In-memory diagnostic session` : 'Upload CSV or Excel files to extract column schemas and statistical insights'}
+                {file ? `${(file.size / 1024).toFixed(1)} KB • In-memory tabular session` : 'Upload CSV or Excel files to extract column schemas and statistical summaries'}
               </p>
             </div>
           </div>

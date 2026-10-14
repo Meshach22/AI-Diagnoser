@@ -46,7 +46,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 }) => {
   const { user, openAuthModal } = useAuth();
   const [selectedProvider, setSelectedProvider] = useState('Google Gemini');
-  const [selectedModel, setSelectedModel] = useState('gemini-3.8-flash');
+  const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
   const [inputPrompt, setInputPrompt] = useState(initialPrompt);
   const [loading, setLoading] = useState(false);
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
@@ -54,7 +54,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     {
       id: '1',
       sender: 'assistant',
-      text: 'Hello! I am your AI Data Diagnostics Copilot. You can ask me to evaluate financial indicators, synthesize unstructured documents, or explain anomalies across your data.',
+      text: 'Hello! I am your AI Chat Assistant. You can ask me to evaluate metrics, synthesize unstructured documents, or explain trends across your operations.',
       timestamp: 'Just now',
     },
   ]);
@@ -175,7 +175,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       const streamRes = await api.streamRouter(
         promptToSend,
         selectedProvider,
-        selectedProvider === 'Google Gemini' ? (selectedModel || 'gemini-3.8-flash') : undefined,
+        selectedProvider === 'Google Gemini' ? (selectedModel || 'gemini-2.5-flash') : undefined,
         (token: string) => {
           streamedText += token;
           setMessages((prev) =>
@@ -206,7 +206,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           const resp: ChatResponse = await api.queryRouter(
             promptToSend,
             selectedProvider,
-            selectedProvider === 'Google Gemini' ? (selectedModel || 'gemini-3.8-flash') : undefined
+            selectedProvider === 'Google Gemini' ? (selectedModel || 'gemini-2.5-flash') : undefined
           );
           const responseText = resp.result || resp.response;
           setMessages((prev) =>
@@ -270,12 +270,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               const val = e.target.value;
               setSelectedProvider(val);
               if (val === 'Google Gemini') {
-                setSelectedModel('gemini-3.8-flash');
+                setSelectedModel('gemini-2.5-flash');
               }
             }}
             style={{ width: 'auto', padding: '6px 12px', fontSize: '0.85rem' }}
           >
-            <option value="Google Gemini">Google Gemini 3.8 Flash</option>
+            <option value="Google Gemini">Google Gemini 2.5 Flash (Fast-Path)</option>
             <option value="Groq">Groq LLaMA 3.3 (Fast)</option>
             <option value="OpenAI">OpenAI GPT-4o</option>
           </select>
@@ -520,7 +520,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         <input
           type="text"
           className="input"
-          placeholder={user ? "Ask a question about trends, variance, or executive takeaways..." : "Sign in to query the AI diagnostic engine..."}
+          placeholder={user ? "Ask a question about trends, variance, or executive takeaways..." : "Sign in to query the AI assistant..."}
           value={inputPrompt}
           onChange={(e) => setInputPrompt(e.target.value)}
           disabled={loading}

@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 
 # Standard system instruction for LLM providers
 ANALYST_SYSTEM_PROMPT = (
+    "Output your answer instantly. Use extreme conciseness. Maximum 150 words. Use bullet points. "
     "You are a live Gemini 3.8 instance. "
     "When provided with CSV, spreadsheet data, or unstructured text, you must act as a senior data scientist. "
     "Do not just summarize; find hidden correlations, anomalies, and actionable insights. "
@@ -120,7 +121,8 @@ def build_document_summary_prompt(document_text: str, summary_type: str = "execu
     )
 
 
-NOTEBOOKLM_QA_SYSTEM_PROMPT = """You are an advanced AI Chat Assistant operating with the reasoning power, analytical depth, and conversational poise of Google Gemini and ChatGPT.
+NOTEBOOKLM_QA_SYSTEM_PROMPT = """Output your answer instantly. Use extreme conciseness. Maximum 150 words. Use bullet points.
+You are an advanced AI Chat Assistant operating with the reasoning power, analytical depth, and conversational poise of Google Gemini and ChatGPT.
 
 You answer questions grounded intelligently in the provided document context.
 
