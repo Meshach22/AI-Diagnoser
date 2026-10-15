@@ -40,6 +40,10 @@ interface UploadedDocMeta {
   word_count?: number;
 }
 
+export function buildMultiDocContext(bundledDocumentSources: string, query: string): string {
+  return `[CONTEXTUAL EVIDENCE DOSSIER]\nThe following are reference documents provided by the user. Do NOT quote or repeat this text directly. Analyze, synthesize, evaluate, and extract high-level strategic intelligence to answer the query below:\n---\n${bundledDocumentSources}\n---\nUSER INQUIRY: ${query}`;
+}
+
 export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   initialPrompt = '',
   activeContextText = '',
@@ -141,10 +145,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         })
         .join('\n\n');
 
-      promptToSend = `[GROUNDED SOURCES KNOWLEDGE BASE]\n${sourcesBlock}\n-------------------------------\nUser Query: ${userMsg.text}`;
+      promptToSend = buildMultiDocContext(sourcesBlock, userMsg.text);
     } else if (activeContextText && activeContextText.trim()) {
       const cappedContext = activeContextText.trim().slice(0, 30000);
-      promptToSend = `[GROUNDED SOURCES KNOWLEDGE BASE]\n--- Source 1: Active Context ---\n${cappedContext}\n-------------------------------\nUser Query: ${userMsg.text}`;
+      promptToSend = buildMultiDocContext(`--- Source 1: Active Context ---\n${cappedContext}`, userMsg.text);
     }
 
     const assistantMsgId = (Date.now() + 1).toString();

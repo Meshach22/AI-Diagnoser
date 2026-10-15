@@ -45,6 +45,10 @@ interface DocWorkspaceProps {
   initialFile?: File | null;
 }
 
+export function buildMultiDocContext(bundledDocumentSources: string, query: string): string {
+  return `[CONTEXTUAL EVIDENCE DOSSIER]\nThe following are reference documents provided by the user. Do NOT quote or repeat this text directly. Analyze, synthesize, evaluate, and extract high-level strategic intelligence to answer the query below:\n---\n${bundledDocumentSources}\n---\nUSER INQUIRY: ${query}`;
+}
+
 export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }) => {
   const { user, openAuthModal } = useAuth();
   const [uploadedDocs, setUploadedDocs] = useState<UploadedDoc[]>([]);
@@ -393,10 +397,10 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
         })
         .join('\n\n');
 
-      promptToSend = `[GROUNDED SOURCES KNOWLEDGE BASE]\n${sourcesBlock}\n-------------------------------\nUser Query: ${query}`;
+      promptToSend = buildMultiDocContext(sourcesBlock, query);
     } else {
       const cappedContext = docText.slice(0, 30000);
-      promptToSend = `[GROUNDED SOURCES KNOWLEDGE BASE]\n--- Source 1: Active Document ---\n${cappedContext}\n-------------------------------\nUser Query: ${query}`;
+      promptToSend = buildMultiDocContext(`--- Source 1: Active Document ---\n${cappedContext}`, query);
     }
 
     try {

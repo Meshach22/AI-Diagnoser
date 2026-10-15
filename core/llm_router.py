@@ -375,7 +375,11 @@ def _query_gemini(
             max_tokens = 1024
     else:
         max_tokens = 4096
-    gen_config = {"temperature": 0.1, "max_output_tokens": max_tokens}
+    gen_config = {
+        "temperature": 0.4,  # Balances factual grounding with high-level cognitive synthesis
+        "top_p": 0.95,
+        "max_output_tokens": max_tokens
+    }
     effective_instruction = system_instruction or kwargs.get("system_instruction") or ANALYST_SYSTEM_PROMPT
 
     for idx, candidate in enumerate(model_candidates):
@@ -544,7 +548,11 @@ def _stream_gemini(
             max_tokens = 1024
     else:
         max_tokens = 4096
-    gen_config = {"temperature": 0.1, "max_output_tokens": max_tokens}
+    gen_config = {
+        "temperature": 0.4,  # Balances factual grounding with high-level cognitive synthesis
+        "top_p": 0.95,
+        "max_output_tokens": max_tokens
+    }
     last_error: Optional[BaseException] = None
     effective_instruction = system_instruction or kwargs.get("system_instruction") or ANALYST_SYSTEM_PROMPT
 
