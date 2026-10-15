@@ -372,11 +372,11 @@ def _query_gemini(
         try:
             max_tokens = int(raw_max_tokens)
         except (ValueError, TypeError):
-            max_tokens = 1024
+            max_tokens = 512
     else:
-        max_tokens = 4096
+        max_tokens = 512
     gen_config = {
-        "temperature": 0.4,  # Balances factual grounding with high-level cognitive synthesis
+        "temperature": 0.2,  # Ensures factual sharpness and tight focus
         "top_p": 0.95,
         "max_output_tokens": max_tokens
     }
@@ -545,11 +545,11 @@ def _stream_gemini(
         try:
             max_tokens = int(raw_max_tokens)
         except (ValueError, TypeError):
-            max_tokens = 1024
+            max_tokens = 512
     else:
-        max_tokens = 4096
+        max_tokens = 512
     gen_config = {
-        "temperature": 0.4,  # Balances factual grounding with high-level cognitive synthesis
+        "temperature": 0.2,  # Ensures factual sharpness and tight focus
         "top_p": 0.95,
         "max_output_tokens": max_tokens
     }
