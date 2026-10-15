@@ -681,3 +681,16 @@ html, body {
   color: var(--text-secondary);
   font-style: italic;
 }
+
+/* Message Container Safety - Prevent Abrupt Truncation or Clipping */
+.chat-message,
+.markdown-content,
+.chat-markdown,
+.message-bubble {
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+  overflow-y: visible !important;
+  -webkit-line-clamp: unset !important;
+}
+

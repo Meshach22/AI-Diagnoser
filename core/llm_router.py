@@ -42,7 +42,7 @@ _TIMEOUT_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=32, thread
 # Upstream LLM request timeout. Never below 60s (the old hardcoded 12s limit caused ReadTimeouts);
 # responses are streamed so the HTTP connection to the browser stays alive while tokens arrive.
 try:
-    LLM_REQUEST_TIMEOUT_SECONDS: float = max(60.0, float(os.getenv("LLM_REQUEST_TIMEOUT_SECONDS", "90")))
+    LLM_REQUEST_TIMEOUT_SECONDS: float = max(90.0, float(os.getenv("LLM_REQUEST_TIMEOUT_SECONDS", "90")))
 except ValueError:
     LLM_REQUEST_TIMEOUT_SECONDS = 90.0
 
@@ -370,11 +370,11 @@ def _query_gemini(
     raw_max_tokens = kwargs.get("max_output_tokens")
     if raw_max_tokens is not None:
         try:
-            max_tokens = int(raw_max_tokens)
+            max_tokens = max(2048, int(raw_max_tokens))
         except (ValueError, TypeError):
-            max_tokens = 512
+            max_tokens = 2048
     else:
-        max_tokens = 512
+        max_tokens = 2048
     gen_config = {
         "temperature": 0.2,  # Ensures factual sharpness and tight focus
         "top_p": 0.95,
@@ -470,14 +470,16 @@ _STREAM_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=32, thread_
 def _gemini_chunk_text(chunk: Any) -> str:
     """Safely extract text from a streamed Gemini chunk (quick accessor raises on empty/blocked parts)."""
     try:
-        if getattr(chunk, "text", None):
-            return chunk.text
+        cands = getattr(chunk, "candidates", None) or []
+        if cands and getattr(cands[0], "content", None):
+            parts = getattr(cands[0].content, "parts", None) or []
+            return "".join(getattr(p, "text", "") or "" for p in parts)
     except Exception:
         pass
     try:
-        cands = getattr(chunk, "candidates", None) or []
-        if cands and getattr(cands[0], "content", None):
-            return "".join(getattr(p, "text", "") or "" for p in cands[0].content.parts)
+        t = getattr(chunk, "text", None)
+        if t:
+            return str(t)
     except Exception:
         pass
     return ""
@@ -543,11 +545,11 @@ def _stream_gemini(
     raw_max_tokens = kwargs.get("max_output_tokens")
     if raw_max_tokens is not None:
         try:
-            max_tokens = int(raw_max_tokens)
+            max_tokens = max(2048, int(raw_max_tokens))
         except (ValueError, TypeError):
-            max_tokens = 512
+            max_tokens = 2048
     else:
-        max_tokens = 512
+        max_tokens = 2048
     gen_config = {
         "temperature": 0.2,  # Ensures factual sharpness and tight focus
         "top_p": 0.95,
@@ -558,7 +560,7 @@ def _stream_gemini(
 
     for candidate in candidates:
         emitted = False
-        cand_timeout = LLM_REQUEST_TIMEOUT_SECONDS
+        cand_timeout = max(90.0, LLM_REQUEST_TIMEOUT_SECONDS)
         req_options = {"timeout": cand_timeout}
         try:
             try:
@@ -569,11 +571,57 @@ def _stream_gemini(
                 model = genai.GenerativeModel(candidate, generation_config=gen_config)
             payload: Any = [prompt, pil_image] if pil_image else prompt
             response = model.generate_content(payload, stream=True, request_options=req_options)
-            for chunk in response:
-                piece = _gemini_chunk_text(chunk)
-                if piece:
-                    emitted = True
-                    yield piece
+            try:
+                for chunk in response:
+                    try:
+                        # Check candidate finish reason and log without raising
+                        cands = getattr(chunk, "candidates", None)
+                        if cands and len(cands) > 0:
+                            first_cand = cands[0]
+                            finish_reason = getattr(first_cand, "finish_reason", None)
+                            if finish_reason:
+                                logger.info(
+                                    "Gemini stream candidate '%s' chunk finish_reason: %s",
+                                    candidate,
+                                    finish_reason,
+                                )
+
+                            # Check if candidates and content parts exist before accessing chunk.text
+                            content = getattr(first_cand, "content", None)
+                            if content and getattr(content, "parts", None):
+                                text_piece = None
+                                try:
+                                    text_piece = chunk.text
+                                except Exception:
+                                    text_piece = "".join(getattr(p, "text", "") or "" for p in content.parts)
+                                if text_piece:
+                                    emitted = True
+                                    yield text_piece
+                                    continue
+
+                        # Fallback for chunks with direct text attribute
+                        text_piece = getattr(chunk, "text", None)
+                        if text_piece:
+                            emitted = True
+                            yield text_piece
+                    except (ValueError, AttributeError, IndexError) as chunk_err:
+                        # Skip empty/metadata chunks without breaking the generator
+                        logger.debug("Skipping unreadable/metadata chunk: %s", chunk_err)
+                        continue
+            except Exception as stream_iter_err:
+                # If stream iterator raises after tokens have already been emitted,
+                # complete the stream cleanly instead of crashing the SSE stream
+                if emitted:
+                    logger.warning(
+                        "Gemini stream candidate '%s' iteration completed with (%s: %s). Closing stream gracefully.",
+                        candidate,
+                        type(stream_iter_err).__name__,
+                        stream_iter_err,
+                    )
+                    LAST_TELEMETRY["active_provider"] = "Google Gemini"
+                    return
+                raise stream_iter_err
+
             if emitted:
                 LAST_TELEMETRY["active_provider"] = "Google Gemini"
                 return
@@ -581,7 +629,8 @@ def _stream_gemini(
         except Exception as e:  # noqa: BLE001 - provider SDKs raise many exception types
             last_error = e
             if emitted:
-                raise  # cannot cascade after the user has already received partial output
+                logger.warning("Gemini stream candidate '%s' encountered post-emission error (%s: %s). Returning gracefully.", candidate, type(e).__name__, e)
+                return
             err_msg = str(e).lower()
             logger.warning("Gemini stream candidate '%s' failed (%s: %s). Trying next...", candidate, type(e).__name__, e)
             if any(s in err_msg for s in ("404", "not found", "not available", "no longer available", "400", "unsupported", "429", "quota", "resourceexhausted", "timeout", "timed out")):

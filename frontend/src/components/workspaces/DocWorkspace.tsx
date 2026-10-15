@@ -986,6 +986,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                   return (
                     <div
                       key={m.id}
+                      className="chat-message"
                       style={{
                         display: 'flex',
                         gap: 10,
@@ -1011,6 +1012,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                       </div>
 
                       <div
+                        className="message-bubble markdown-content"
                         style={{
                           background: isUser ? 'var(--accent-red)' : 'var(--bg-subtle)',
                           color: isUser ? '#FFFFFF' : 'var(--text-primary)',

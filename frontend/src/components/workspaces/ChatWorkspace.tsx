@@ -353,6 +353,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         {messages.map((m) => (
           <div
             key={m.id}
+            className="chat-message"
             style={{
               display: 'flex',
               gap: 12,
@@ -379,6 +380,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             )}
 
             <div
+              className="message-bubble"
               style={{
                 background: m.sender === 'user' ? 'var(--accent-red)' : 'var(--bg-subtle)',
                 color: m.sender === 'user' ? '#FFFFFF' : 'var(--text-primary)',
