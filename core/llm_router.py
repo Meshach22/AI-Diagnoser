@@ -306,7 +306,9 @@ def _query_gemini(
     prompt: str,
     model_name: str = "gemini-3.8-flash",
     api_key: Optional[str] = None,
-    image_data: Optional[Any] = None
+    image_data: Optional[Any] = None,
+    system_instruction: Optional[str] = None,
+    **kwargs
 ) -> str:
     """Execute query using Google Generative AI SDK with live supported Gemini model."""
     global _CACHED_GEMINI_KEY
@@ -365,8 +367,16 @@ def _query_gemini(
         pil_image = compress_and_downsample_image(pil_image, max_dim=1024, quality=85)
 
     last_error = None
-    max_tokens = kwargs.get("max_output_tokens", 1024 if "max_output_tokens" in kwargs else 4096)
+    raw_max_tokens = kwargs.get("max_output_tokens")
+    if raw_max_tokens is not None:
+        try:
+            max_tokens = int(raw_max_tokens)
+        except (ValueError, TypeError):
+            max_tokens = 1024
+    else:
+        max_tokens = 4096
     gen_config = {"temperature": 0.1, "max_output_tokens": max_tokens}
+    effective_instruction = system_instruction or kwargs.get("system_instruction") or ANALYST_SYSTEM_PROMPT
 
     for idx, candidate in enumerate(model_candidates):
         cand_timeout = LLM_REQUEST_TIMEOUT_SECONDS
@@ -377,7 +387,7 @@ def _query_gemini(
                 model = genai.GenerativeModel(
                     candidate,
                     generation_config=gen_config,
-                    system_instruction=ANALYST_SYSTEM_PROMPT
+                    system_instruction=effective_instruction
                 )
             except Exception:
                 model = genai.GenerativeModel(candidate, generation_config=gen_config)
@@ -474,6 +484,7 @@ def _stream_gemini(
     model_name: str = "gemini-3.8-flash",
     api_key: Optional[str] = None,
     image_data: Optional[Any] = None,
+    system_instruction: Optional[str] = None,
     **kwargs
 ) -> Iterator[str]:
     """Stream Gemini output token-by-token using generate_content(stream=True).
@@ -525,9 +536,17 @@ def _stream_gemini(
     if pil_image:
         pil_image = compress_and_downsample_image(pil_image, max_dim=1024, quality=85)
 
-    max_tokens = kwargs.get("max_output_tokens", 1024 if "max_output_tokens" in kwargs else 4096)
+    raw_max_tokens = kwargs.get("max_output_tokens")
+    if raw_max_tokens is not None:
+        try:
+            max_tokens = int(raw_max_tokens)
+        except (ValueError, TypeError):
+            max_tokens = 1024
+    else:
+        max_tokens = 4096
     gen_config = {"temperature": 0.1, "max_output_tokens": max_tokens}
     last_error: Optional[BaseException] = None
+    effective_instruction = system_instruction or kwargs.get("system_instruction") or ANALYST_SYSTEM_PROMPT
 
     for candidate in candidates:
         emitted = False
@@ -536,7 +555,7 @@ def _stream_gemini(
         try:
             try:
                 model = genai.GenerativeModel(
-                    candidate, generation_config=gen_config, system_instruction=ANALYST_SYSTEM_PROMPT
+                    candidate, generation_config=gen_config, system_instruction=effective_instruction
                 )
             except Exception:
                 model = genai.GenerativeModel(candidate, generation_config=gen_config)
@@ -1539,7 +1558,8 @@ class LLMRouter:
                         prompt=prompt,
                         model_name=cand_model,
                         api_key=cand_key,
-                        image_data=pil_image
+                        image_data=pil_image,
+                        **kwargs
                     )
                     if res and not (res.startswith("⚠️") or res.startswith("❌") or res.startswith("🔌") or res.startswith("⏳")):
                         LAST_TELEMETRY["active_provider"] = "Google Gemini"
@@ -1592,7 +1612,8 @@ class LLMRouter:
                     prompt=prompt,
                     model_name=model_name or "gemini-3.8-flash",
                     api_key=api_key,
-                    image_data=None
+                    image_data=None,
+                    **kwargs
                 )
             elif canonical == "openai":
                 return _execute_with_timeout(
