@@ -145,7 +145,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab = 'chat', onTabChange 
             <Activity size={18} />
           </div>
           <div>
-            <span className="brand-title">Nexus Diagnostics</span>
+            <span className="brand-title">AI Data Analyst</span>
           </div>
           <span className="version-badge">v2.4</span>
         </div>
@@ -158,7 +158,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab = 'chat', onTabChange 
             className={`header-nav-tab ${activeTab === 'chat' ? 'active' : ''}`}
           >
             <MessageSquare size={14} />
-            <span>Diagnostic Console</span>
+            <span>AI Chat Assistant</span>
           </button>
           <button
             type="button"
@@ -166,7 +166,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab = 'chat', onTabChange 
             className={`header-nav-tab ${activeTab === 'unified' ? 'active' : ''}`}
           >
             <FileText size={14} />
-            <span>Document Control</span>
+            <span>Document Intelligence</span>
           </button>
         </div>
 
@@ -377,7 +377,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab = 'chat', onTabChange 
                   </div>
                 ) : (
                   <div style={{ padding: '14px', borderRadius: 'var(--radius-sm)', background: 'var(--bg-subtle)', border: '1px solid var(--border-soft)', fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center' }}>
-                    No documents currently ingested. Upload in Document Control to ground insights.
+                    No documents currently ingested. Upload in Document Intelligence to ground insights.
                   </div>
                 )}
               </div>

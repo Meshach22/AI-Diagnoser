@@ -8,7 +8,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   Send,
-  Cpu,
+  Bot,
   User,
   Clock,
   Sparkles,
@@ -16,7 +16,23 @@ import {
   FileSpreadsheet,
   FileText,
   Layers,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
+
+interface ModelOption {
+  id: string;
+  label: string;
+  description: string;
+  provider: string;
+}
+
+const MODEL_OPTIONS: ModelOption[] = [
+  { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Analytical)', description: 'Google DeepMind • Multimodal Reasoning', provider: 'Google Gemini' },
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', description: 'Google DeepMind • Ultra-fast responses', provider: 'Google Gemini' },
+  { id: 'llama-3.3-70b-versatile', label: 'Groq LLaMA 3.3', description: 'Meta • High-throughput inference', provider: 'Groq' },
+  { id: 'gpt-4o', label: 'OpenAI GPT-4o', description: 'OpenAI • Multimodal flagship', provider: 'OpenAI' },
+];
 
 interface Message {
   id: string;
@@ -52,6 +68,8 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   const { user, openAuthModal } = useAuth();
   const [selectedProvider, setSelectedProvider] = useState('Google Gemini');
   const [selectedModel, setSelectedModel] = useState('gemini-3.8-flash');
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
   const [inputPrompt, setInputPrompt] = useState(initialPrompt);
   const [loading, setLoading] = useState(false);
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
@@ -59,7 +77,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     {
       id: '1',
       sender: 'assistant',
-      text: 'Diagnostic Console Ready. System is prepared for cross-document synthesis, variance detection, and strategic evaluation.',
+      text: 'Hello! I am your AI Chat Assistant powered by Gemini 3.8 Flash. I can synthesize cross-document insights across all your uploaded files, identify hidden correlations, and provide strategic recommendations.',
       timestamp: 'Just now',
     },
   ]);
@@ -100,6 +118,24 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
   useEffect(() => {
     scrollToBottom(false, true);
   }, [messages, loading, scrollToBottom]);
+
+  // Click outside and escape handler for custom model dropdown
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) {
+        setIsModelDropdownOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsModelDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   // Synchronize documents from memory / storage
   const syncDocumentsFromStorage = useCallback(() => {
@@ -309,54 +345,139 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           width: '100%',
         }}
       >
-        {/* Model Selector Pill */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div
+        {/* Custom React Dark-Themed Model Dropdown */}
+        <div style={{ position: 'relative' }} ref={modelDropdownRef}>
+          <button
+            type="button"
+            onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
               gap: 8,
               padding: '6px 14px',
               borderRadius: 'var(--radius-full)',
-              background: 'rgba(18, 18, 20, 0.65)',
+              background: 'rgba(18, 18, 20, 0.75)',
               backdropFilter: 'blur(16px)',
               WebkitBackdropFilter: 'blur(16px)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
+              border: `1px solid ${isModelDropdownOpen ? 'rgba(220, 38, 38, 0.6)' : 'rgba(255, 255, 255, 0.1)'}`,
               fontSize: '0.82rem',
-              color: 'var(--text-secondary)',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+              color: 'var(--text-primary)',
+              boxShadow: isModelDropdownOpen
+                ? '0 0 0 2px rgba(220, 38, 38, 0.2), 0 4px 16px rgba(0, 0, 0, 0.4)'
+                : '0 2px 8px rgba(0, 0, 0, 0.3)',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
             }}
+            title="Select AI Model"
           >
             <Sparkles size={14} style={{ color: 'var(--accent-red)' }} />
-            <select
-              value={selectedModel}
-              onChange={(e) => {
-                const modelId = e.target.value;
-                setSelectedModel(modelId);
-                if (modelId.startsWith('gemini')) {
-                  setSelectedProvider('Google Gemini');
-                } else if (modelId.startsWith('llama')) {
-                  setSelectedProvider('Groq');
-                } else if (modelId.startsWith('gpt')) {
-                  setSelectedProvider('OpenAI');
-                }
-              }}
+            <span style={{ fontWeight: 600 }}>
+              {MODEL_OPTIONS.find((m) => m.id === selectedModel)?.label || selectedModel}
+            </span>
+            <ChevronDown
+              size={13}
               style={{
-                background: 'transparent',
-                border: 'none',
-                outline: 'none',
-                color: 'var(--text-primary)',
-                fontWeight: 600,
-                fontSize: '0.82rem',
-                cursor: 'pointer',
+                color: 'var(--text-muted)',
+                transform: isModelDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.2s ease',
+              }}
+            />
+          </button>
+
+          {isModelDropdownOpen && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 8px)',
+                left: 0,
+                minWidth: 280,
+                background: '#121214',
+                backgroundColor: 'rgba(18, 18, 20, 0.95)',
+                backdropFilter: 'blur(24px) saturate(180%)',
+                WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+                border: '1px solid rgba(255, 255, 255, 0.12)',
+                borderRadius: 'var(--radius-md)',
+                boxShadow: '0 16px 40px rgba(0, 0, 0, 0.65), 0 0 16px rgba(0, 0, 0, 0.4)',
+                padding: '6px',
+                zIndex: 60,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2,
               }}
             >
-              <option value="gemini-3.8-flash" style={{ background: '#121214', color: '#fff' }}>Synthesis Engine v3.8 (Deep Analysis)</option>
-              <option value="gemini-2.5-flash" style={{ background: '#121214', color: '#fff' }}>Synthesis Engine v2.5 (Fast)</option>
-              <option value="llama-3.3-70b-versatile" style={{ background: '#121214', color: '#fff' }}>High-Throughput Engine v3.3</option>
-              <option value="gpt-4o" style={{ background: '#121214', color: '#fff' }}>Omni-Modal Engine v4.0</option>
-            </select>
-          </div>
+              <div
+                style={{
+                  padding: '6px 10px 4px 10px',
+                  fontSize: '0.7rem',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  color: 'var(--text-muted)',
+                  borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                  marginBottom: 4,
+                }}
+              >
+                Select AI Engine
+              </div>
+
+              {MODEL_OPTIONS.map((opt) => {
+                const isSelected = selectedModel === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedModel(opt.id);
+                      setSelectedProvider(opt.provider);
+                      setIsModelDropdownOpen(false);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '8px 12px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: isSelected ? 'var(--accent-red-subtle)' : 'transparent',
+                      border: 'none',
+                      color: isSelected ? 'var(--accent-red)' : 'var(--text-primary)',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      width: '100%',
+                      transition: 'all 0.12s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.background = 'transparent';
+                      }
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ fontSize: '0.84rem', fontWeight: isSelected ? 600 : 500 }}>
+                        {opt.label}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: '0.72rem',
+                          color: isSelected ? 'var(--accent-red)' : 'var(--text-muted)',
+                          opacity: 0.85,
+                        }}
+                      >
+                        {opt.description}
+                      </span>
+                    </div>
+                    {isSelected && (
+                      <Check size={15} style={{ color: 'var(--accent-red)', flexShrink: 0, marginLeft: 8 }} />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Grounded Evidence Sources Pill */}
@@ -465,7 +586,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   marginTop: 2,
                 }}
               >
-                <Cpu size={17} />
+                <Bot size={17} />
               </div>
             )}
 
@@ -494,7 +615,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     </ReactMarkdown>
                   ) : (
                     <span style={{ fontStyle: 'italic', opacity: 0.75 }}>
-                      Synthesizing diagnostic intelligence...
+                      Reasoning with {selectedProvider}...
                     </span>
                   )}
                   {loading && streamingMsgId === m.id && (
@@ -525,9 +646,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 }}
               >
                 {m.provider && (
-                  <span>
-                    via {m.provider.includes('Gemini') ? 'Synthesis Engine' : m.provider.includes('Groq') ? 'High-Throughput Engine' : m.provider.includes('OpenAI') ? 'Omni Engine' : 'Core Engine'}
-                  </span>
+                  <span>via {m.provider}</span>
                 )}
                 {m.latencyMs && (
                   <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
@@ -575,7 +694,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 justifyContent: 'center',
               }}
             >
-              <Cpu size={17} />
+              <Bot size={17} />
             </div>
             <div
               style={{
@@ -590,7 +709,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               }}
               className="animate-pulse"
             >
-              Executing neural diagnostic pipeline...
+              Consulting {selectedProvider} neural pipeline...
             </div>
           </div>
         )}
@@ -631,7 +750,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           <input
             type="text"
             className="floating-prompt-input"
-            placeholder={user ? "Ask anything about variance, executive KPIs, or correlations..." : "Sign in to query the Diagnostic Console..."}
+            placeholder={user ? "Ask anything about variance, executive KPIs, or correlations..." : "Sign in to query the AI assistant..."}
             value={inputPrompt}
             onChange={(e) => setInputPrompt(e.target.value)}
             disabled={loading}
@@ -655,7 +774,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             letterSpacing: '0.01em',
           }}
         >
-          End-to-End Encrypted • Enterprise Intelligence &amp; Decision Support
+          Gemini 3.8 Flash • Multi-Source Cognitive Synthesis &amp; Enterprise Diagnostics
         </div>
       </div>
     </div>

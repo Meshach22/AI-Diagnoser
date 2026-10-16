@@ -21,7 +21,7 @@ import {
   Layers,
   FileCheck,
   Clock,
-  Cpu,
+  Bot,
 } from 'lucide-react';
 
 export interface UploadedDoc {
@@ -584,7 +584,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 960, margin: '0 auto', width: '100%', paddingBottom: 24 }}>
-      {/* Document Control Strip - Glassmorphic */}
+      {/* Document Intelligence Strip - Glassmorphic */}
       <div
         style={{
           background: 'rgba(18, 18, 20, 0.65)',
@@ -603,7 +603,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
             </div>
             <div>
               <h3 style={{ fontSize: '1.12rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                Document Control &amp; Multi-File Analysis
+                Document Intelligence &amp; Multi-File Analysis
               </h3>
               <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
                 {uploadedDocs.length > 0
@@ -989,11 +989,11 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div className="brand-icon-box" style={{ width: 34, height: 34 }}>
-                  <Cpu size={17} />
+                  <Bot size={17} />
                 </div>
                 <div>
                   <h4 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
-                    Diagnostic Assistant
+                    AI Chat Assistant
                   </h4>
                   <p style={{ fontSize: '0.78rem', margin: 0, color: 'var(--text-secondary)' }}>
                     Cross-document synthesis &amp; conversational reasoning
@@ -1104,7 +1104,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                           marginTop: 2,
                         }}
                       >
-                        {isUser ? <User size={16} /> : <Cpu size={16} />}
+                        {isUser ? <User size={16} /> : <Bot size={16} />}
                       </div>
 
                       <div
@@ -1162,7 +1162,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                       flexShrink: 0,
                     }}
                   >
-                    <Cpu size={16} />
+                    <Bot size={16} />
                   </div>
                   <div
                     style={{
@@ -1176,7 +1176,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                     }}
                     className="animate-pulse"
                   >
-                    Executing cross-document synthesis and neural evaluation...
+                    Analyzing document intelligence...
                   </div>
                 </div>
               )}

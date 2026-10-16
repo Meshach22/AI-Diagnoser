@@ -355,7 +355,7 @@ export const HomeWorkspace: React.FC<HomeWorkspaceProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <div>
                 <h4 style={{ fontSize: '0.98rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
-                  Recent Diagnostic Console Threads
+                  Recent AI Chat Assistant Threads
                 </h4>
                 <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
                   Pick up right where you left off with multi-turn conversational reasoning

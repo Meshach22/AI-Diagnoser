@@ -8,8 +8,8 @@ import { AuthProvider } from '@/context/AuthContext';
 import { AuthModal } from '@/components/auth/AuthModal';
 
 export const metadata: Metadata = {
-  title: 'Nexus Diagnostics | Enterprise Intelligence Platform',
-  description: 'Proprietary Multimodal Data Diagnostics and Enterprise Intelligence Platform.',
+  title: 'AI Data Analyst | Intelligent Data Diagnostic Platform',
+  description: 'AI Data Analyst - Multimodal Data Diagnostics and Document Intelligence powered by Gemini.',
 };
 
 export default function RootLayout({
