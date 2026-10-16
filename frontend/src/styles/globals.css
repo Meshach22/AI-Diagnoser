@@ -1,7 +1,8 @@
 /* frontend/src/styles/globals.css */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
-  /* Light Mode Palette - Crisp Clean Zinc/Slate */
+  /* Light Mode Palette - Crisp Clean Slate / Zinc */
   --bg-primary: #F8F9FA;
   --bg-card: #FFFFFF;
   --bg-elevated: #FFFFFF;
@@ -16,7 +17,7 @@
   --accent-red: #DC2626;
   --accent-red-hover: #B91C1C;
   --accent-red-subtle: #FEF2F2;
-  --accent-red-glow: rgba(220, 38, 38, 0.15);
+  --accent-red-glow: rgba(220, 38, 38, 0.18);
   --sidebar-bg: #FFFFFF;
   --header-bg: rgba(255, 255, 255, 0.88);
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(0, 0, 0, 0.03);
@@ -25,7 +26,8 @@
   --status-online: #10B981;
   --status-offline: #EF4444;
   --status-warning: #F59E0B;
-  --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Outfit", "Helvetica Neue", sans-serif;
+  --font-main: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
+  --font-display: "Space Grotesk", var(--font-main);
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   --radius-xs: 4px;
   --radius-sm: 6px;
@@ -37,13 +39,13 @@
 }
 
 [data-theme="dark"] {
-  /* Bespoke Dark Surface Hierarchy - Deep Obsidian Depth */
+  /* Bespoke Dark Surface Hierarchy - Deep Obsidian Canvas (#09090b) */
   --bg-primary: #09090b;
   --bg-card: #121214;
   --bg-elevated: #18181b;
   --bg-subtle: #141416;
   --sidebar-bg: #101012;
-  --header-bg: rgba(9, 9, 11, 0.85);
+  --header-bg: rgba(9, 9, 11, 0.82);
   --text-primary: #F4F4F5;
   --text-secondary: #A1A1AA;
   --text-muted: #71717A;
@@ -54,7 +56,7 @@
   --accent-red: #EF4444;
   --accent-red-hover: #DC2626;
   --accent-red-subtle: rgba(239, 68, 68, 0.12);
-  --accent-red-glow: rgba(239, 68, 68, 0.2);
+  --accent-red-glow: rgba(239, 68, 68, 0.25);
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.45), 0 4px 16px rgba(0, 0, 0, 0.35);
   --shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.6), 0 8px 24px rgba(0, 0, 0, 0.45);
   --shadow-modal: 0 24px 48px rgba(0, 0, 0, 0.85);
@@ -92,8 +94,7 @@ html, body {
 [data-theme="dark"] .main-layout {
   background-color: #09090b;
   background-image: 
-    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(120, 119, 198, 0.12), transparent),
-    radial-gradient(ellipse 60% 40% at 85% 95%, rgba(239, 68, 68, 0.04), transparent);
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(120, 119, 198, 0.12), transparent);
   background-attachment: fixed;
 }
 
@@ -171,16 +172,24 @@ html, body {
   transition: background var(--transition-normal), border-color var(--transition-normal);
 }
 
-/* Header Centered Navigation Pill */
+/* Header Centered Navigation Pill - Glassmorphic */
 .header-nav-pill {
   display: inline-flex;
   align-items: center;
-  background: var(--bg-card);
+  background: rgba(18, 18, 20, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-full);
-  padding: 3px;
-  gap: 3px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  padding: 4px;
+  gap: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+[data-theme="light"] .header-nav-pill {
+  background: rgba(244, 244, 245, 0.85);
+  border: 1px solid var(--border-soft);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .header-nav-tab {
@@ -189,8 +198,10 @@ html, body {
   gap: 8px;
   padding: 7px 18px;
   border-radius: var(--radius-full);
+  font-family: var(--font-display);
   font-size: 0.84rem;
   font-weight: 500;
+  letter-spacing: -0.01em;
   color: var(--text-secondary);
   background: transparent;
   border: none;
@@ -211,7 +222,7 @@ html, body {
   background: var(--accent-red);
   color: #FFFFFF;
   font-weight: 600;
-  box-shadow: 0 2px 10px var(--accent-red-glow);
+  box-shadow: 0 2px 14px var(--accent-red-glow);
 }
 
 /* Sources & History Slide-Over Drawer */
@@ -219,8 +230,8 @@ html, body {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   z-index: 90;
   animation: fadeIn 0.15s ease-out;
 }
@@ -247,29 +258,30 @@ html, body {
   to { transform: translateX(0); }
 }
 
-/* Floating Glassmorphic Prompt Bar */
+/* Floating Glassmorphic Prompt Bar with Frosted Blur and Glowing Active Borders */
 .floating-prompt-bar {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 10px 8px 18px;
-  background: rgba(18, 18, 20, 0.82);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--border-soft);
+  padding: 8px 10px 8px 20px;
+  background: rgba(18, 18, 20, 0.78);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-full);
-  box-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.5);
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  transition: all var(--transition-fast);
 }
 
 [data-theme="light"] .floating-prompt-bar {
   background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 16px 36px -10px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04);
 }
 
 .floating-prompt-bar:focus-within {
-  border-color: var(--border-focus);
-  box-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.6), 0 0 0 2px var(--accent-red-subtle);
+  border-color: var(--accent-red);
+  box-shadow: 0 20px 44px -8px rgba(0, 0, 0, 0.7), 0 0 0 3px var(--accent-red-glow), 0 0 16px rgba(239, 68, 68, 0.25);
 }
 
 .floating-prompt-input {
@@ -296,6 +308,11 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.floating-prompt-btn:active {
+  transform: scale(0.98);
 }
 
 @media (max-width: 768px) {
@@ -489,9 +506,14 @@ html, body {
   margin-bottom: 20px;
 }
 
+h1, h2, h3, h4, h5, h6, .brand-title, .card-title {
+  font-family: var(--font-display);
+  letter-spacing: -0.025em;
+  font-weight: 700;
+}
+
 .card-title {
   font-size: 1.15rem;
-  font-weight: 600;
   color: var(--text-primary);
 }
 
