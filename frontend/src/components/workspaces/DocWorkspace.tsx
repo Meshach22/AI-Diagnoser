@@ -21,6 +21,7 @@ import {
   Layers,
   FileCheck,
   Clock,
+  Cpu,
 } from 'lucide-react';
 
 export interface UploadedDoc {
@@ -59,7 +60,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
   const [chatLoading, setChatLoading] = useState<boolean>(false);
   const [docQuestion, setDocQuestion] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
-  const [loadingMessage, setLoadingMessage] = useState<string>('Analyzing document intelligence...');
+  const [loadingMessage, setLoadingMessage] = useState<string>('Synthesizing document data...');
   const [error, setError] = useState<string | null>(null);
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -582,22 +583,32 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
   const totalWords = uploadedDocs.reduce((acc, d) => acc + d.word_count, 0);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 1120, margin: '0 auto', width: '100%' }}>
-      {/* Upload Header Card */}
-      <div className="card" style={{ padding: 20 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, maxWidth: 960, margin: '0 auto', width: '100%', paddingBottom: 24 }}>
+      {/* Document Control Strip - Glassmorphic */}
+      <div
+        style={{
+          background: 'rgba(18, 18, 20, 0.65)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          border: '1px solid var(--border-soft)',
+          borderRadius: 'var(--radius-lg)',
+          padding: '20px 24px',
+          boxShadow: '0 8px 30px rgba(0, 0, 0, 0.35)',
+        }}
+      >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div className="brand-icon-box" style={{ width: 42, height: 42 }}>
-              <Layers size={22} />
+            <div className="brand-icon-box" style={{ width: 40, height: 40 }}>
+              <Layers size={20} />
             </div>
             <div>
-              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+              <h3 style={{ fontSize: '1.12rem', fontWeight: 700, color: 'var(--text-primary)' }}>
                 Document Control &amp; Multi-File Analysis
               </h3>
               <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
                 {uploadedDocs.length > 0
-                  ? `${uploadedDocs.length} document${uploadedDocs.length > 1 ? 's' : ''} loaded • Cross-document reasoning & persistent synthesis`
-                  : 'Upload PDF, Word (DOCX), or Plaintext corporate reports to analyze'}
+                  ? `${uploadedDocs.length} document${uploadedDocs.length > 1 ? 's' : ''} loaded • Cross-document reasoning &amp; persistent synthesis`
+                  : 'Upload PDF, Word (DOCX), or Plaintext reports for diagnostic evaluation'}
               </p>
             </div>
           </div>
@@ -628,20 +639,20 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
           </div>
         </div>
 
-        {/* Multi-Document Selectable Chips / Cards */}
+        {/* Multi-Document Selectable Chips / Pills */}
         {uploadedDocs.length > 0 && (
           <div
             style={{
-              marginTop: 18,
+              marginTop: 16,
               paddingTop: 16,
-              borderTop: '1px solid var(--border-soft)',
+              borderTop: '1px solid var(--border-subtle)',
               display: 'flex',
               flexDirection: 'column',
               gap: 10,
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.04em' }}>
+              <span style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.06em' }}>
                 Active Document Scope
               </span>
               <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
@@ -658,25 +669,26 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                   display: 'flex',
                   alignItems: 'center',
                   gap: 8,
-                  padding: '7px 14px',
-                  borderRadius: 'var(--radius-sm)',
-                  fontSize: '0.85rem',
+                  padding: '6px 14px',
+                  borderRadius: 'var(--radius-full)',
+                  fontSize: '0.82rem',
                   fontWeight: 600,
                   cursor: 'pointer',
-                  border: activeDocId === 'all' ? '2px solid var(--accent-red)' : '1px solid var(--border-medium)',
-                  background: activeDocId === 'all' ? 'var(--accent-red-subtle)' : 'var(--bg-elevated)',
-                  color: activeDocId === 'all' ? 'var(--accent-red)' : 'var(--text-primary)',
-                  transition: 'all 0.15s ease',
+                  border: activeDocId === 'all' ? '1px solid var(--accent-red)' : '1px solid var(--border-soft)',
+                  background: activeDocId === 'all' ? 'var(--accent-red)' : 'var(--bg-card)',
+                  color: activeDocId === 'all' ? '#FFFFFF' : 'var(--text-primary)',
+                  boxShadow: activeDocId === 'all' ? '0 2px 10px var(--accent-red-glow)' : 'none',
+                  transition: 'all var(--transition-fast)',
                 }}
               >
-                <Layers size={15} />
-                <span>All Uploaded Documents</span>
+                <Layers size={14} />
+                <span>All Documents</span>
                 <span
                   style={{
-                    fontSize: '0.74rem',
+                    fontSize: '0.72rem',
                     padding: '1px 6px',
-                    borderRadius: 10,
-                    background: activeDocId === 'all' ? 'var(--accent-red)' : 'var(--bg-subtle)',
+                    borderRadius: 'var(--radius-full)',
+                    background: activeDocId === 'all' ? 'rgba(255, 255, 255, 0.25)' : 'var(--bg-subtle)',
                     color: activeDocId === 'all' ? '#FFFFFF' : 'var(--text-muted)',
                   }}
                 >
@@ -695,22 +707,23 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                       display: 'flex',
                       alignItems: 'center',
                       gap: 8,
-                      padding: '7px 12px',
-                      borderRadius: 'var(--radius-sm)',
-                      fontSize: '0.85rem',
+                      padding: '6px 12px',
+                      borderRadius: 'var(--radius-full)',
+                      fontSize: '0.82rem',
                       fontWeight: 500,
                       cursor: 'pointer',
-                      border: isActive ? '2px solid var(--accent-red)' : '1px solid var(--border-medium)',
-                      background: isActive ? 'var(--accent-red-subtle)' : 'var(--bg-elevated)',
+                      border: isActive ? '1px solid var(--accent-red)' : '1px solid var(--border-soft)',
+                      background: isActive ? 'var(--accent-red-subtle)' : 'var(--bg-card)',
                       color: isActive ? 'var(--accent-red)' : 'var(--text-primary)',
-                      transition: 'all 0.15s ease',
+                      boxShadow: isActive ? '0 2px 8px var(--accent-red-glow)' : 'none',
+                      transition: 'all var(--transition-fast)',
                     }}
                   >
-                    <FileText size={14} />
+                    <FileText size={13} />
                     <span style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.filename}>
                       {d.filename}
                     </span>
-                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                    <span style={{ fontSize: '0.72rem', opacity: 0.75 }}>
                       ({d.page_count}p)
                     </span>
                     <button
@@ -741,14 +754,23 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
 
       {/* Unauthenticated Notification */}
       {!user && uploadedDocs.length > 0 && (
-        <div className="card" style={{ padding: 24, textAlign: 'center', background: 'var(--bg-subtle)' }}>
+        <div
+          style={{
+            padding: 24,
+            textAlign: 'center',
+            background: 'rgba(18, 18, 20, 0.55)',
+            backdropFilter: 'blur(16px)',
+            border: '1px solid var(--border-soft)',
+            borderRadius: 'var(--radius-lg)',
+          }}
+        >
           <div style={{ maxWidth: 440, margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
             <Lock size={26} style={{ color: 'var(--accent-red)' }} />
             <h4 style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)' }}>
               Authentication Required
             </h4>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              Sign in or register to enable AI cross-document reasoning, multi-turn memory, and executive summaries.
+              Sign in or register to enable cross-document reasoning, multi-turn memory, and executive summaries.
             </p>
             <button className="btn btn-primary" onClick={openAuthModal}>
               Sign In to Analyze Documents
@@ -762,9 +784,9 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
         <div
           style={{
             padding: '14px 18px',
-            background: 'rgba(239, 68, 68, 0.12)',
+            background: 'rgba(239, 68, 68, 0.1)',
             color: 'var(--accent-red)',
-            borderRadius: 'var(--radius-sm)',
+            borderRadius: 'var(--radius-md)',
             border: '1px solid rgba(239, 68, 68, 0.25)',
             fontSize: '0.85rem',
           }}
@@ -787,51 +809,102 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
 
       {/* Loading State */}
       {loading && (
-        <div className="card animate-pulse" style={{ padding: 32, textAlign: 'center', color: 'var(--text-secondary)' }}>
+        <div
+          className="animate-pulse"
+          style={{
+            padding: 32,
+            textAlign: 'center',
+            color: 'var(--text-secondary)',
+            background: 'rgba(18, 18, 20, 0.55)',
+            backdropFilter: 'blur(16px)',
+            borderRadius: 'var(--radius-lg)',
+            border: '1px solid var(--border-soft)',
+          }}
+        >
           {loadingMessage}
         </div>
       )}
 
       {uploadedDocs.length > 0 && !loading && (
         <>
-          {/* Document Metrics */}
+          {/* Document Metrics - Minimalist Stat Pillars */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
-            <div className="card" style={{ padding: 18 }}>
-              <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Scope</div>
-              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 4 }}>
+            <div
+              style={{
+                background: 'rgba(18, 18, 20, 0.45)',
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+                border: '1px solid var(--border-soft)',
+                borderRadius: 'var(--radius-md)',
+                padding: '16px 20px',
+                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)',
+              }}
+            >
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Scope</div>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.45rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 4, letterSpacing: '-0.02em' }}>
                 {activeDocId === 'all' ? `${uploadedDocs.length} Documents` : 'Single File'}
               </div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 2 }}>
                 {activeDocId === 'all' ? 'Cross-document reasoning' : activeLabel}
               </div>
             </div>
 
-            <div className="card" style={{ padding: 18 }}>
-              <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Pages</div>
-              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 4 }}>
+            <div
+              style={{
+                background: 'rgba(18, 18, 20, 0.45)',
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+                border: '1px solid var(--border-soft)',
+                borderRadius: 'var(--radius-md)',
+                padding: '16px 20px',
+                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)',
+              }}
+            >
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Pages</div>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.45rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 4, letterSpacing: '-0.02em' }}>
                 {activeDocId === 'all'
                   ? totalPages
                   : (uploadedDocs.find((d) => d.id === activeDocId)?.page_count || 1)}
               </div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>Extracted pages</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 2 }}>Extracted pages</div>
             </div>
 
-            <div className="card" style={{ padding: 18 }}>
-              <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Word Count</div>
-              <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 4 }}>
+            <div
+              style={{
+                background: 'rgba(18, 18, 20, 0.45)',
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+                border: '1px solid var(--border-soft)',
+                borderRadius: 'var(--radius-md)',
+                padding: '16px 20px',
+                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)',
+              }}
+            >
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Word Count</div>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.45rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 4, letterSpacing: '-0.02em' }}>
                 {activeDocId === 'all'
                   ? totalWords.toLocaleString()
                   : (uploadedDocs.find((d) => d.id === activeDocId)?.word_count || 0).toLocaleString()}
               </div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>Tokens parsed</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 2 }}>Tokens parsed</div>
             </div>
           </div>
 
-          {/* Quick Action Summarization Buttons */}
-          <div className="card" style={{ padding: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+          {/* Quick Action Summarization & Synthesis */}
+          <div
+            style={{
+              background: 'rgba(18, 18, 20, 0.55)',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+              border: '1px solid var(--border-soft)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '20px 24px',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
               <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                Executive AI Summarization Actions ({activeLabel})
+                Executive Synthesis &amp; Intelligence Actions ({activeLabel})
               </div>
               {summary && (
                 <button
@@ -879,11 +952,14 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
               <div
                 style={{
                   marginTop: 18,
-                  padding: 18,
-                  borderRadius: 'var(--radius-md)',
+                  padding: '18px 22px',
+                  borderRadius: '0 var(--radius-md) var(--radius-md) 0',
+                  borderLeft: '3px solid var(--accent-red)',
                   background: 'var(--bg-subtle)',
-                  border: '1px solid var(--border-soft)',
-                  lineHeight: 1.6,
+                  borderTop: '1px solid var(--border-soft)',
+                  borderRight: '1px solid var(--border-soft)',
+                  borderBottom: '1px solid var(--border-soft)',
+                  lineHeight: 1.65,
                   fontSize: '0.92rem',
                   whiteSpace: 'pre-wrap',
                 }}
@@ -897,31 +973,30 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
             )}
           </div>
 
-          {/* AI Chat Assistant with Cross-Document Reasoning */}
-          <div className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            {/* Thread Header */}
+          {/* Diagnostic Assistant with Cross-Document Reasoning - Borderless Floating Thread */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Thread Header Row */}
             <div
               style={{
-                padding: '16px 20px',
-                borderBottom: '1px solid var(--border-soft)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 flexWrap: 'wrap',
                 gap: 12,
-                background: 'var(--bg-subtle)',
+                paddingBottom: 8,
+                borderBottom: '1px solid var(--border-subtle)',
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div className="brand-icon-box" style={{ width: 36, height: 36 }}>
-                  <Sparkles size={18} />
+                <div className="brand-icon-box" style={{ width: 34, height: 34 }}>
+                  <Cpu size={17} />
                 </div>
                 <div>
-                  <h4 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+                  <h4 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
                     Diagnostic Assistant
                   </h4>
                   <p style={{ fontSize: '0.78rem', margin: 0, color: 'var(--text-secondary)' }}>
-                    Intelligent document reasoning &amp; conversational memory
+                    Cross-document synthesis &amp; conversational reasoning
                   </p>
                 </div>
               </div>
@@ -929,10 +1004,10 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span
                   style={{
-                    fontSize: '0.75rem',
+                    fontSize: '0.74rem',
                     padding: '4px 10px',
-                    borderRadius: 12,
-                    background: 'var(--bg-elevated)',
+                    borderRadius: 'var(--radius-full)',
+                    background: 'var(--bg-card)',
                     border: '1px solid var(--border-soft)',
                     color: 'var(--text-secondary)',
                   }}
@@ -944,7 +1019,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                     type="button"
                     className="btn btn-secondary btn-sm"
                     onClick={handleClearChat}
-                    style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: 6 }}
+                    style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: 6 }}
                     title="Clear current conversation thread"
                   >
                     <Trash2 size={13} />
@@ -954,28 +1029,28 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
               </div>
             </div>
 
-            {/* Scrollable Conversation Feed */}
+            {/* Scrollable Conversation Feed - Borderless Canvas */}
             <div
               ref={chatScrollRef}
+              className="chat-scroll-container"
               style={{
-                minHeight: '280px',
+                minHeight: '260px',
                 maxHeight: '480px',
                 overflowY: 'auto',
-                padding: 20,
+                padding: '12px 0',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 16,
-                background: 'var(--bg-elevated)',
+                gap: 18,
               }}
             >
               {messages.length === 0 ? (
                 <div style={{ textAlign: 'center', margin: 'auto', padding: '32px 16px', maxWidth: 560 }}>
                   <HelpCircle size={36} style={{ margin: '0 auto 12px', color: 'var(--accent-red)', opacity: 0.8 }} />
                   <h5 style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6 }}>
-                    Ask Anything Across Your Documents
+                    Query Document Intelligence
                   </h5>
                   <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.5 }}>
-                    The Diagnostic Assistant reasons intelligently across your active documents, connecting related concepts, analyzing impact, and recalling multi-turn context.
+                    The Diagnostic Assistant reasons across your active dossiers, extracting variance drivers, evaluating strategic risks, and connecting cross-file evidence.
                   </p>
 
                   {/* Starter Chips */}
@@ -992,7 +1067,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                         className="chip"
                         onClick={() => handleSendChat(chipPrompt)}
                         disabled={!docTextAvailable || chatLoading}
-                        style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+                        style={{ fontSize: '0.8rem', padding: '6px 14px' }}
                       >
                         <Sparkles size={12} style={{ color: 'var(--accent-red)' }} />
                         <span>{chipPrompt}</span>
@@ -1026,22 +1101,23 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                           alignItems: 'center',
                           justifyContent: 'center',
                           flexShrink: 0,
+                          marginTop: 2,
                         }}
                       >
-                        {isUser ? <User size={16} /> : <Sparkles size={16} />}
+                        {isUser ? <User size={16} /> : <Cpu size={16} />}
                       </div>
 
                       <div
                         className="message-bubble markdown-content"
                         style={{
-                          background: isUser ? 'var(--accent-red)' : 'var(--bg-subtle)',
+                          background: isUser ? 'var(--accent-red)' : 'var(--bg-card)',
                           color: isUser ? '#FFFFFF' : 'var(--text-primary)',
-                          padding: '12px 16px',
-                          borderRadius: isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                          padding: '12px 18px',
+                          borderRadius: isUser ? '16px 4px 16px 16px' : '4px 16px 16px 16px',
                           border: isUser ? 'none' : '1px solid var(--border-soft)',
                           fontSize: '0.92rem',
-                          lineHeight: 1.5,
-                          boxShadow: 'var(--shadow-card)',
+                          lineHeight: 1.6,
+                          boxShadow: isUser ? '0 2px 10px var(--accent-red-glow)' : 'var(--shadow-card)',
                         }}
                       >
                         {isUser ? (
@@ -1061,7 +1137,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                             opacity: 0.75,
                           }}
                         >
-                          {!isUser && <span>Grounded in Documents</span>}
+                          {!isUser && <span>Grounded in Dossier</span>}
                           <span>{m.timestamp}</span>
                         </div>
                       </div>
@@ -1086,61 +1162,54 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                       flexShrink: 0,
                     }}
                   >
-                    <Sparkles size={16} />
+                    <Cpu size={16} />
                   </div>
                   <div
                     style={{
-                      background: 'var(--bg-subtle)',
-                      padding: '12px 16px',
-                      borderRadius: '16px 16px 16px 4px',
+                      background: 'var(--bg-card)',
+                      padding: '12px 18px',
+                      borderRadius: '4px 16px 16px 16px',
                       border: '1px solid var(--border-soft)',
                       fontSize: '0.88rem',
                       color: 'var(--text-secondary)',
-                      fontStyle: 'italic',
+                      boxShadow: 'var(--shadow-card)',
                     }}
+                    className="animate-pulse"
                   >
-                    Reasoning across documents and synthesizing response...
+                    Executing cross-document synthesis and neural evaluation...
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Sticky Bottom Input Bar */}
+            {/* Floating Glassmorphic Input Capsule */}
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 handleSendChat();
               }}
-              style={{
-                padding: '14px 18px',
-                borderTop: '1px solid var(--border-soft)',
-                display: 'flex',
-                gap: 10,
-                background: 'var(--bg-surface)',
-              }}
+              className="floating-prompt-bar"
             >
               <input
                 ref={chatInputRef}
                 type="text"
-                className="input"
+                className="floating-prompt-input"
                 placeholder={
                   docTextAvailable
-                    ? `Ask anything across ${activeLabel} (e.g. "synthesize findings", "compare projects")...`
-                    : 'Upload a document to chat...'
+                    ? `Query ${activeLabel} (e.g. "synthesize findings", "compare risk factors")...`
+                    : 'Upload a document to query...'
                 }
                 value={docQuestion}
                 onChange={(e) => setDocQuestion(e.target.value)}
                 disabled={!docTextAvailable || chatLoading}
-                style={{ fontSize: '0.92rem' }}
               />
               <button
                 type="submit"
-                className="btn btn-primary"
+                className="btn btn-primary floating-prompt-btn"
                 disabled={!docQuestion.trim() || !docTextAvailable || chatLoading}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
+                title="Send query"
               >
                 <Send size={15} />
-                <span>Send</span>
               </button>
             </form>
           </div>
