@@ -316,13 +316,15 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               display: 'inline-flex',
               alignItems: 'center',
               gap: 8,
-              padding: '5px 12px',
+              padding: '6px 14px',
               borderRadius: 'var(--radius-full)',
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border-soft)',
+              background: 'rgba(18, 18, 20, 0.65)',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
               fontSize: '0.82rem',
               color: 'var(--text-secondary)',
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.2)',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
             }}
           >
             <Sparkles size={14} style={{ color: 'var(--accent-red)' }} />
@@ -349,10 +351,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 cursor: 'pointer',
               }}
             >
-              <option value="gemini-3.8-flash">Synthesis Engine v3.8 (Deep Analysis)</option>
-              <option value="gemini-2.5-flash">Synthesis Engine v2.5 (Fast)</option>
-              <option value="llama-3.3-70b-versatile">High-Throughput Engine v3.3</option>
-              <option value="gpt-4o">Omni-Modal Engine v4.0</option>
+              <option value="gemini-3.8-flash" style={{ background: '#121214', color: '#fff' }}>Synthesis Engine v3.8 (Deep Analysis)</option>
+              <option value="gemini-2.5-flash" style={{ background: '#121214', color: '#fff' }}>Synthesis Engine v2.5 (Fast)</option>
+              <option value="llama-3.3-70b-versatile" style={{ background: '#121214', color: '#fff' }}>High-Throughput Engine v3.3</option>
+              <option value="gpt-4o" style={{ background: '#121214', color: '#fff' }}>Omni-Modal Engine v4.0</option>
             </select>
           </div>
         </div>
@@ -364,13 +366,16 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               display: 'inline-flex',
               alignItems: 'center',
               gap: 6,
-              padding: '5px 12px',
+              padding: '6px 14px',
               borderRadius: 'var(--radius-full)',
-              background: groundedDocs.length > 0 ? 'var(--accent-red-subtle)' : 'var(--bg-card)',
-              border: `1px solid ${groundedDocs.length > 0 ? 'rgba(239, 68, 68, 0.3)' : 'var(--border-soft)'}`,
+              background: groundedDocs.length > 0 ? 'var(--accent-red-subtle)' : 'rgba(18, 18, 20, 0.65)',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+              border: `1px solid ${groundedDocs.length > 0 ? 'rgba(239, 68, 68, 0.3)' : 'rgba(255, 255, 255, 0.08)'}`,
               fontSize: '0.8rem',
               color: groundedDocs.length > 0 ? 'var(--accent-red)' : 'var(--text-muted)',
               fontWeight: 500,
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.25)',
             }}
           >
             <Layers size={13} />
@@ -467,14 +472,16 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             <div
               className="message-bubble"
               style={{
-                background: m.sender === 'user' ? 'var(--accent-red)' : 'var(--bg-card)',
+                background: m.sender === 'user' ? 'linear-gradient(135deg, var(--accent-red) 0%, var(--accent-red-hover) 100%)' : 'rgba(18, 18, 20, 0.65)',
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
                 color: m.sender === 'user' ? '#FFFFFF' : 'var(--text-primary)',
                 padding: '14px 18px',
                 borderRadius: varRadii(m.sender),
-                border: m.sender === 'assistant' ? '1px solid var(--border-soft)' : 'none',
+                border: m.sender === 'assistant' ? '1px solid rgba(255, 255, 255, 0.08)' : 'none',
                 fontSize: '0.92rem',
                 lineHeight: 1.6,
-                boxShadow: m.sender === 'assistant' ? 'var(--shadow-card)' : '0 2px 8px var(--accent-red-glow)',
+                boxShadow: m.sender === 'assistant' ? '0 4px 20px rgba(0, 0, 0, 0.35)' : '0 4px 16px var(--accent-red-glow)',
               }}
             >
               {m.sender === 'user' ? (
@@ -537,8 +544,9 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   width: 32,
                   height: 32,
                   borderRadius: 'var(--radius-sm)',
-                  background: 'var(--bg-elevated)',
-                  border: '1px solid var(--border-soft)',
+                  background: 'rgba(18, 18, 20, 0.65)',
+                  backdropFilter: 'blur(16px)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
                   color: 'var(--text-primary)',
                   display: 'flex',
                   alignItems: 'center',
@@ -571,12 +579,13 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             </div>
             <div
               style={{
-                background: 'var(--bg-card)',
+                background: 'rgba(18, 18, 20, 0.65)',
+                backdropFilter: 'blur(16px)',
                 padding: '10px 18px',
                 borderRadius: 'var(--radius-md)',
                 color: 'var(--text-secondary)',
                 fontSize: '0.85rem',
-                border: '1px solid var(--border-soft)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
                 boxShadow: 'var(--shadow-card)',
               }}
               className="animate-pulse"
@@ -608,13 +617,14 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         <div ref={messagesEndRef} style={{ height: 1 }} />
       </div>
 
-      {/* Floating Glassmorphic Prompt Bar */}
+      {/* Floating Glassmorphic Prompt Capsule */}
       <div
         style={{
           maxWidth: 860,
           margin: '0 auto',
           width: '100%',
-          paddingBottom: 8,
+          paddingBottom: 14,
+          paddingTop: 8,
         }}
       >
         <form onSubmit={handleSend} className="floating-prompt-bar">
@@ -628,7 +638,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           />
           <button
             type="submit"
-            className="btn btn-primary floating-prompt-btn"
+            className="floating-prompt-btn"
             disabled={loading || !inputPrompt.trim()}
             title="Send inquiry"
           >
@@ -641,7 +651,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             textAlign: 'center',
             fontSize: '0.72rem',
             color: 'var(--text-muted)',
-            marginTop: 6,
+            marginTop: 8,
             letterSpacing: '0.01em',
           }}
         >

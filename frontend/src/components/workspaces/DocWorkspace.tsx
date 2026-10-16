@@ -1205,7 +1205,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
               />
               <button
                 type="submit"
-                className="btn btn-primary floating-prompt-btn"
+                className="floating-prompt-btn"
                 disabled={!docQuestion.trim() || !docTextAvailable || chatLoading}
                 title="Send query"
               >
