@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "accessible-animation": {
+      "source": "iart-ai/web-animation-skills",
+      "sourceType": "github",
+      "skillPath": "skills/accessible-animation/SKILL.md",
+      "computedHash": "95904f741088363b8073d5399600107becd24f23cf81920d4b00a368a7d78d99"
+    },
     "backend": {
       "source": "udaysharmadev/Skills",
       "sourceType": "github",
