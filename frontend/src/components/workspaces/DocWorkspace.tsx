@@ -592,7 +592,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
             </div>
             <div>
               <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                Document Intelligence &amp; Multi-File Analysis
+                Document Control &amp; Multi-File Analysis
               </h3>
               <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
                 {uploadedDocs.length > 0
@@ -918,7 +918,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                 </div>
                 <div>
                   <h4 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
-                    AI Chat Assistant
+                    Diagnostic Assistant
                   </h4>
                   <p style={{ fontSize: '0.78rem', margin: 0, color: 'var(--text-secondary)' }}>
                     Intelligent document reasoning &amp; conversational memory
@@ -975,7 +975,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
                     Ask Anything Across Your Documents
                   </h5>
                   <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.5 }}>
-                    The AI Chat Assistant reasons intelligently across your active documents, connecting related concepts, analyzing impact, and recalling multi-turn context.
+                    The Diagnostic Assistant reasons intelligently across your active documents, connecting related concepts, analyzing impact, and recalling multi-turn context.
                   </p>
 
                   {/* Starter Chips */}

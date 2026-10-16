@@ -8,7 +8,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   Send,
-  Bot,
+  Cpu,
   User,
   Clock,
   Sparkles,
@@ -59,7 +59,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     {
       id: '1',
       sender: 'assistant',
-      text: 'Hello! I am your AI Chat Assistant powered by Gemini 3.8 Flash. I can synthesize cross-document insights across all your uploaded files, identify hidden correlations, and provide strategic recommendations.',
+      text: 'Diagnostic Console Ready. System is prepared for cross-document synthesis, variance detection, and strategic evaluation.',
       timestamp: 'Just now',
     },
   ]);
@@ -349,10 +349,10 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 cursor: 'pointer',
               }}
             >
-              <option value="gemini-3.8-flash">Gemini 3.8 Flash (Analytical)</option>
-              <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-              <option value="llama-3.3-70b-versatile">Groq LLaMA 3.3</option>
-              <option value="gpt-4o">OpenAI GPT-4o</option>
+              <option value="gemini-3.8-flash">Synthesis Engine v3.8 (Deep Analysis)</option>
+              <option value="gemini-2.5-flash">Synthesis Engine v2.5 (Fast)</option>
+              <option value="llama-3.3-70b-versatile">High-Throughput Engine v3.3</option>
+              <option value="gpt-4o">Omni-Modal Engine v4.0</option>
             </select>
           </div>
         </div>
@@ -460,7 +460,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   marginTop: 2,
                 }}
               >
-                <Bot size={17} />
+                <Cpu size={17} />
               </div>
             )}
 
@@ -487,7 +487,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                     </ReactMarkdown>
                   ) : (
                     <span style={{ fontStyle: 'italic', opacity: 0.75 }}>
-                      Reasoning with {selectedProvider}...
+                      Synthesizing diagnostic intelligence...
                     </span>
                   )}
                   {loading && streamingMsgId === m.id && (
@@ -517,7 +517,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                   opacity: 0.75,
                 }}
               >
-                {m.provider && <span>via {m.provider}</span>}
+                {m.provider && (
+                  <span>
+                    via {m.provider.includes('Gemini') ? 'Synthesis Engine' : m.provider.includes('Groq') ? 'High-Throughput Engine' : m.provider.includes('OpenAI') ? 'Omni Engine' : 'Core Engine'}
+                  </span>
+                )}
                 {m.latencyMs && (
                   <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                     <Clock size={11} /> {m.latencyMs}ms
@@ -563,7 +567,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
                 justifyContent: 'center',
               }}
             >
-              <Bot size={17} />
+              <Cpu size={17} />
             </div>
             <div
               style={{
@@ -577,7 +581,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
               }}
               className="animate-pulse"
             >
-              Consulting {selectedProvider} neural pipeline...
+              Executing neural diagnostic pipeline...
             </div>
           </div>
         )}
@@ -617,7 +621,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
           <input
             type="text"
             className="floating-prompt-input"
-            placeholder={user ? "Ask anything about variance, executive KPIs, or correlations..." : "Sign in to query the AI assistant..."}
+            placeholder={user ? "Ask anything about variance, executive KPIs, or correlations..." : "Sign in to query the Diagnostic Console..."}
             value={inputPrompt}
             onChange={(e) => setInputPrompt(e.target.value)}
             disabled={loading}
@@ -641,7 +645,7 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
             letterSpacing: '0.01em',
           }}
         >
-          Gemini 3.8 Flash • Multi-Source Cognitive Synthesis &amp; Enterprise Diagnostics
+          End-to-End Encrypted • Enterprise Intelligence &amp; Decision Support
         </div>
       </div>
     </div>

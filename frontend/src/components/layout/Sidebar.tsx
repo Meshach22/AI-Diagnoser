@@ -28,8 +28,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
   const [historyChats, setHistoryChats] = useState<Array<{ id: string; content: string }>>([]);
 
   const navItems: { id: WorkspaceTab; label: string; icon: React.ReactNode }[] = [
-    { id: 'chat', label: 'AI Chat Assistant', icon: <MessageSquare size={18} /> },
-    { id: 'unified', label: 'Document Intelligence', icon: <FileText size={18} /> },
+    { id: 'chat', label: 'Diagnostic Console', icon: <MessageSquare size={18} /> },
+    { id: 'unified', label: 'Document Control', icon: <FileText size={18} /> },
   ];
 
   useEffect(() => {

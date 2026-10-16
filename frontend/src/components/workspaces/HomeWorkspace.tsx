@@ -349,20 +349,20 @@ export const HomeWorkspace: React.FC<HomeWorkspaceProps> = ({
           </div>
         )}
 
-        {/* Past AI Chat Sessions (ChatGPT / Gemini Style) */}
+        {/* Past Diagnostic Console Sessions */}
         {pastChats.length > 0 && (
           <div style={{ marginTop: 28 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <div>
                 <h4 style={{ fontSize: '0.98rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
-                  Recent AI Chat Assistant Threads
+                  Recent Diagnostic Console Threads
                 </h4>
                 <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
                   Pick up right where you left off with multi-turn conversational reasoning
                 </p>
               </div>
               <button className="btn btn-secondary btn-sm" onClick={() => onSelectTab('unified')}>
-                Open Assistant
+                Open Console
               </button>
             </div>
 
