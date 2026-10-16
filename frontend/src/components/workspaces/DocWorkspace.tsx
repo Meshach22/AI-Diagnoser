@@ -582,7 +582,7 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
   const totalWords = uploadedDocs.reduce((acc, d) => acc + d.word_count, 0);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 1120, margin: '0 auto', width: '100%' }}>
       {/* Upload Header Card */}
       <div className="card" style={{ padding: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>

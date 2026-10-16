@@ -2,8 +2,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Header } from '@/components/layout/Header';
-import { Sidebar, WorkspaceTab } from '@/components/layout/Sidebar';
+import { Header, WorkspaceTab } from '@/components/layout/Header';
 import { ChatWorkspace } from '@/components/workspaces/ChatWorkspace';
 import { DocWorkspace } from '@/components/workspaces/DocWorkspace';
 
@@ -19,12 +18,9 @@ export default function AppHome() {
 
   return (
     <div className="app-container w-full max-w-full overflow-hidden">
-      {/* Left Sidebar */}
-      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
-
-      {/* Main Viewport */}
+      {/* Full-width Main Viewport */}
       <div className="main-layout w-full max-w-full overflow-hidden">
-        <Header />
+        <Header activeTab={activeTab} onTabChange={setActiveTab} />
 
         <main className="content-viewport w-full max-w-full overflow-hidden">
           <div

@@ -1,0 +1,257 @@
+{
+  "version": 1,
+  "skills": {
+    "backend": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/backend/SKILL.md",
+      "computedHash": "8931f6b29f89e6ad521fc3b429afa3b648df4efefc9d6630c70572e0b9f709c5"
+    },
+    "blueprint": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/blueprint/SKILL.md",
+      "computedHash": "ced4148c244f5dfbe1c8a8981b5d587bd216559cbb6db655b2ab4534b1195726"
+    },
+    "brandkit": {
+      "source": "Leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/brandkit/SKILL.md",
+      "computedHash": "f2b8e1f285f363ce07610d764e5b5e3d815bbde8bea29e4a1a8c75a3beb73bd6"
+    },
+    "cleared": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/cleared/SKILL.md",
+      "computedHash": "44ad340cb8e01c9d68a06b1d6f7617fadc3ee768ddba4dd227e0e0e86c1fa972"
+    },
+    "concierge": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/concierge/SKILL.md",
+      "computedHash": "37d4ecea305c28448754a648e6b500b6c8e02e03a40e87c1d1ff659ea57cd4b5"
+    },
+    "design-taste-frontend": {
+      "source": "Leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/taste-skill/SKILL.md",
+      "computedHash": "41463de84d80d8839b1e9fc8ddfd140578443d095b53710d1f331dbab3079712"
+    },
+    "design-taste-frontend-v1": {
+      "source": "Leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/taste-skill-v1/SKILL.md",
+      "computedHash": "693ec93f29a2133d79cb3c41b707629ecc6120ab784d1f5aa3e93dedd8b38d5c"
+    },
+    "design-taste-frontend-v2-experimental": {
+      "source": "Leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/taste-skill-v2-experimental/SKILL.md",
+      "computedHash": "1618e10f20b22914c6f0db6b55c76ed49caf6284e28d0fa5bca3e533aee22673"
+    },
+    "distill": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/distill/SKILL.md",
+      "computedHash": "cb996425d960fd50377224b2bbada14db22559d677983dabceec665c0e1282f7"
+    },
+    "ditto": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/ditto/SKILL.md",
+      "computedHash": "ac9f7135661eec7323913c186dce1bb9fde366fe23d330ca3fc79fcc8a40b7e9"
+    },
+    "findable": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/findable/SKILL.md",
+      "computedHash": "d57a315d0cf35345ccc3881f59cb02ee28fbc9bf56765252b243151fa3e2e8bb"
+    },
+    "friction": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/friction/SKILL.md",
+      "computedHash": "7c5335d3c3695764564e572c3c640c050b1efccc279d2ec1a2a4a529e84cce47"
+    },
+    "frontpage": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/frontpage/SKILL.md",
+      "computedHash": "d01a180c33944c46bbadfa384b3cab93decb7372131fbeb3660b1ba3b58e7862"
+    },
+    "frugal": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/frugal/SKILL.md",
+      "computedHash": "eb9286834ecad5b897b2300369eacd10ed9718c76176f138b96eecf2008a02fe"
+    },
+    "full-output-enforcement": {
+      "source": "Leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/output-skill/SKILL.md",
+      "computedHash": "524f7c7950c3fde726101613f630140411c7d080e63be718687f4b38f919be81"
+    },
+    "gpt-taste": {
+      "source": "Leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/gpt-tasteskill/SKILL.md",
+      "computedHash": "11bf97d9ddfc5b946e46d650e9a81237f1765c32f465ad4a5befa39e74ff1662"
+    },
+    "handsfree": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/handsfree/SKILL.md",
+      "computedHash": "ec7aaef3164c8919fd163360f642924ca3c86f44333870f127c5c92ae28208b0"
+    },
+    "harden": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/harden/SKILL.md",
+      "computedHash": "fe13920531a406fb86df5808a92e1c8506dc134071248a840ec1708f3b38b79f"
+    },
+    "headroom": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/headroom/SKILL.md",
+      "computedHash": "6b6f91afd75a8370339850dd0513fe5ecdf1b5466c5589b7f0c5c766c0de9327"
+    },
+    "high-end-visual-design": {
+      "source": "Leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/soft-skill/SKILL.md",
+      "computedHash": "f730e4132775f13eea19e3dc39afc6bb453cfc0498872b127ad8f0d47cfd802d"
+    },
+    "hotpath": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/hotpath/SKILL.md",
+      "computedHash": "38b04209a1f63dcb720ac82122f9d28861990e05101fba92d3bed3666209bea9"
+    },
+    "hotseat": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/hotseat/SKILL.md",
+      "computedHash": "d699fc2b9940aadfa6b1146ad7628360ae827b91a6317d030b026b8c221a71e7"
+    },
+    "image-to-code": {
+      "source": "Leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/image-to-code-skill/SKILL.md",
+      "computedHash": "3d2ac14d956fdafc5500d2108b90895e134d847f9f199e7f1d18bf1f814cf7c8"
+    },
+    "imagegen-frontend-mobile": {
+      "source": "Leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/imagegen-frontend-mobile/SKILL.md",
+      "computedHash": "7c1d1dc59cd0df4063b8621af543bf5dea1d576b261507e17b0323c69680b048"
+    },
+    "imagegen-frontend-web": {
+      "source": "Leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/imagegen-frontend-web/SKILL.md",
+      "computedHash": "27255c7c50181e58add156b2aa2bd5325285b85f04027e4c8b73742d98d7be0a"
+    },
+    "industrial-brutalist-ui": {
+      "source": "Leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/brutalist-skill/SKILL.md",
+      "computedHash": "e66e5a2a8b73cef79ab6546459c665e8b983645689c5f3772f7eed8b9f1e8e0e"
+    },
+    "janitor": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/janitor/SKILL.md",
+      "computedHash": "ff919ec2ecfbabbc204e81e33d7ab931b7423a1059ee0e7f6143aa3fa5f2e554"
+    },
+    "masterplan": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/masterplan/SKILL.md",
+      "computedHash": "48a3e432f98ddb3a5955904bbd579a4c858a5636b90582ee20442322200818a6"
+    },
+    "minimalist-ui": {
+      "source": "Leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/minimalist-skill/SKILL.md",
+      "computedHash": "f9174b67ed00bce3f62641ac6393911a53f61f210f5b59ee3248acbed2ad11a0"
+    },
+    "pilot": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/pilot/SKILL.md",
+      "computedHash": "cf56a822442a48ac209424d4ab94bafacb24205f2ab377da8269ef6039575329"
+    },
+    "polish": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/polish/SKILL.md",
+      "computedHash": "acb09aa7e687ef51bab2b3b3184c1528b13959c9e85a79acda81c6405ec0f673"
+    },
+    "proof": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/proof/SKILL.md",
+      "computedHash": "539c5d762c08a51ef0b2ca2804de0804086eeab64509667fbfcd44a74f06c1d5"
+    },
+    "recall": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/recall/SKILL.md",
+      "computedHash": "ebd0d95246fe9937c121c2e06ab64e75178e83c963b568f13e118280ee39ccc8"
+    },
+    "redesign-existing-projects": {
+      "source": "Leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/redesign-skill/SKILL.md",
+      "computedHash": "d39f2dfb1c6e4026a288b203e42cee265cf97321b412ea76c402d399f4ec99e0"
+    },
+    "referee": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/referee/SKILL.md",
+      "computedHash": "e55cd40a3c55276417cb6519f41ce1a595e15ed08330e25281529a187937efa0"
+    },
+    "roadtest": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/roadtest/SKILL.md",
+      "computedHash": "86abcbec0cc193d3583a60fa7466938edaf19bf346322c7cfed92e65cf18066e"
+    },
+    "runway": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/runway/SKILL.md",
+      "computedHash": "c5e24f2e66c616c49d815aad8b493687185daf754c8b2b8e641235de5ec27833"
+    },
+    "scout": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/scout/SKILL.md",
+      "computedHash": "ee2dbb78ea61a0a2a77ae7fb3f7269a345a0f9bfd4bcb6f07fd03af5d3d985b7"
+    },
+    "sleuth": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/sleuth/SKILL.md",
+      "computedHash": "eb44d5c74228cf4433a7851fbfe88a56cbb0c4213a501583a1c6c467f49c1113"
+    },
+    "spelunk": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/spelunk/SKILL.md",
+      "computedHash": "ed50c9a86c9d0f7cf8f92fc1b81fa052e4ea0b37c59045c82ed0665bc132c065"
+    },
+    "stitch-design-taste": {
+      "source": "Leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/stitch-skill/SKILL.md",
+      "computedHash": "c96b580192b34167efa01f460bbc669ff4315cf97f3cf6ff85ded8029aa720b8"
+    },
+    "unslop": {
+      "source": "udaysharmadev/Skills",
+      "sourceType": "github",
+      "skillPath": "skills/unslop/SKILL.md",
+      "computedHash": "9b8aab4e65972f2d397eeeaef8ab395e9756d5651e91af46f543515f08c4997d"
+    }
+  }
+}
