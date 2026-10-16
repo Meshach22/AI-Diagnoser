@@ -96,6 +96,10 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
 
       try {
         localStorage.setItem(memKey, JSON.stringify(memoryPayload));
+        // Broadcast real-time cross-workspace sync event
+        window.dispatchEvent(
+          new CustomEvent('ai_diagnoser_workspace_sync', { detail: memoryPayload })
+        );
       } catch (err) {
         console.warn('Failed to save to localStorage:', err);
       }
@@ -178,8 +182,24 @@ export const DocWorkspace: React.FC<DocWorkspaceProps> = ({ initialFile = null }
     };
 
     restoreMemory();
+
+    const handleSync = (e: any) => {
+      const payload = e.detail;
+      if (isMounted && payload && Array.isArray(payload.uploadedDocs)) {
+        setUploadedDocs(payload.uploadedDocs);
+        if (payload.activeDocId) {
+          setActiveDocId(payload.activeDocId);
+        }
+      }
+    };
+
+    window.addEventListener('ai_diagnoser_workspace_sync', handleSync);
+    window.addEventListener('storage', restoreMemory);
+
     return () => {
       isMounted = false;
+      window.removeEventListener('ai_diagnoser_workspace_sync', handleSync);
+      window.removeEventListener('storage', restoreMemory);
     };
   }, [user, getMemoryKey]);
 

@@ -1,7 +1,7 @@
 // frontend/src/components/workspaces/ChatWorkspace.tsx
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { api, ChatResponse } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import ReactMarkdown from 'react-markdown';
@@ -15,6 +15,7 @@ import {
   AlertCircle,
   FileSpreadsheet,
   FileText,
+  Layers,
 } from 'lucide-react';
 
 interface Message {
@@ -68,46 +69,93 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const isUserScrolledUpRef = useRef<boolean>(false);
 
-  const scrollToBottom = (instant: boolean = false) => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({
-        behavior: instant ? 'auto' : 'smooth',
-        block: 'end',
-      });
-    } else if (chatContainerRef.current) {
+  // Non-intrusive auto-scrolling: preserves user scroll position if reading historical messages
+  const scrollToBottom = useCallback((force: boolean = false, instant: boolean = false) => {
+    if (!force && isUserScrolledUpRef.current) {
+      return;
+    }
+    if (chatContainerRef.current) {
       chatContainerRef.current.scrollTo({
         top: chatContainerRef.current.scrollHeight,
         behavior: instant ? 'auto' : 'smooth',
       });
+    } else if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({
+        behavior: instant ? 'auto' : 'smooth',
+        block: 'end',
+      });
     }
+  }, []);
+
+  const handleChatScroll = () => {
+    const el = chatContainerRef.current;
+    if (!el) return;
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    isUserScrolledUpRef.current = distanceToBottom > 80;
   };
 
-  // Automatically scroll to bottom whenever messages change or loading begins
+  // Auto-scroll when messages change or loading state toggles (unless user scrolled up)
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, loading]);
+    scrollToBottom(false, true);
+  }, [messages, loading, scrollToBottom]);
 
-  // Auto-discover uploaded documents from persistent workspace memory
-  useEffect(() => {
+  // Synchronize documents from memory / storage
+  const syncDocumentsFromStorage = useCallback(() => {
     if (typeof window === 'undefined') return;
     try {
       const memKey = user?.email ? `ai_diagnoser_memory_${user.email}` : 'ai_diagnoser_memory_guest';
       const raw = localStorage.getItem(memKey) || localStorage.getItem('ai_diagnoser_memory_guest');
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed?.uploadedDocs) && parsed.uploadedDocs.length > 0) {
+        if (Array.isArray(parsed?.uploadedDocs)) {
           setPersistedDocs(parsed.uploadedDocs);
-          const active = parsed.activeDocId && parsed.activeDocId !== 'all'
-            ? parsed.uploadedDocs.find((d: any) => d.id === parsed.activeDocId)
-            : parsed.uploadedDocs[0];
-          setActiveDocContext(active || parsed.uploadedDocs[0]);
+          if (parsed.uploadedDocs.length > 0) {
+            const active = parsed.activeDocId && parsed.activeDocId !== 'all'
+              ? parsed.uploadedDocs.find((d: any) => d.id === parsed.activeDocId)
+              : parsed.uploadedDocs[0];
+            setActiveDocContext(active || parsed.uploadedDocs[0]);
+          } else {
+            setActiveDocContext(null);
+          }
+          return;
         }
       }
+      setPersistedDocs([]);
+      setActiveDocContext(null);
     } catch (e) {
       console.warn('Failed to load persisted document context for chat:', e);
     }
   }, [user?.email]);
+
+  // Live cross-workspace synchronization listener
+  useEffect(() => {
+    syncDocumentsFromStorage();
+
+    const handleSync = (e: any) => {
+      const payload = e.detail;
+      if (payload && Array.isArray(payload.uploadedDocs)) {
+        setPersistedDocs(payload.uploadedDocs);
+        if (payload.uploadedDocs.length > 0) {
+          const active = payload.activeDocId && payload.activeDocId !== 'all'
+            ? payload.uploadedDocs.find((d: any) => d.id === payload.activeDocId)
+            : payload.uploadedDocs[0];
+          setActiveDocContext(active || payload.uploadedDocs[0]);
+        } else {
+          setActiveDocContext(null);
+        }
+      }
+    };
+
+    window.addEventListener('ai_diagnoser_workspace_sync', handleSync);
+    window.addEventListener('storage', syncDocumentsFromStorage);
+
+    return () => {
+      window.removeEventListener('ai_diagnoser_workspace_sync', handleSync);
+      window.removeEventListener('storage', syncDocumentsFromStorage);
+    };
+  }, [syncDocumentsFromStorage]);
 
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -125,10 +173,12 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
+    isUserScrolledUpRef.current = false;
     setMessages((prev) => [...prev, userMsg]);
     setInputPrompt('');
     setLoading(true);
     setError(null);
+    scrollToBottom(true, true);
 
     // Multi-Source Grounding: Bundle ALL currently uploaded documents belonging to the user
     let promptToSend = userMsg.text;
@@ -230,6 +280,11 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
     }
   };
 
+  const groundedDocs = persistedDocs.filter(
+    (d) => (d.full_text || d.preview || '').trim().length > 0
+  );
+  const totalGroundedWords = groundedDocs.reduce((acc, d) => acc + (d.word_count || 0), 0);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20, height: 'calc(100vh - 140px)' }}>
       {/* Top Controls */}
@@ -283,67 +338,112 @@ export const ChatWorkspace: React.FC<ChatWorkspaceProps> = ({
         </div>
       </div>
 
-      {(activeContextText || activeDocContext) && (
-        <div
-          style={{
-            padding: '8px 14px',
-            background: 'var(--bg-subtle)',
-            borderRadius: 'var(--radius-sm)',
-            border: '1px solid var(--border-soft)',
-            fontSize: '0.8rem',
-            color: 'var(--text-secondary)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: 8,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <FileText size={14} style={{ color: 'var(--accent-red)' }} />
+      {/* Grounded Evidence Dossier Bar */}
+      <div
+        style={{
+          padding: '10px 16px',
+          background: 'var(--bg-card)',
+          borderRadius: 'var(--radius-md)',
+          border: '1px solid var(--border-soft)',
+          fontSize: '0.82rem',
+          color: 'var(--text-secondary)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 10,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '3px 10px',
+              borderRadius: 'var(--radius-full)',
+              background: groundedDocs.length > 0 ? 'var(--accent-red-subtle)' : 'var(--bg-subtle)',
+              border: `1px solid ${groundedDocs.length > 0 ? 'rgba(239, 68, 68, 0.25)' : 'var(--border-soft)'}`,
+              color: groundedDocs.length > 0 ? 'var(--accent-red)' : 'var(--text-muted)',
+              fontWeight: 600,
+              fontSize: '0.75rem',
+            }}
+          >
+            <Layers size={13} />
             <span>
-              Connected Document:{' '}
-              <strong style={{ color: 'var(--text-primary)' }}>
-                {activeDocContext ? activeDocContext.filename : 'Active Injected Context'}
-              </strong>
-              {activeDocContext?.word_count ? ` (${activeDocContext.word_count.toLocaleString()} words)` : ''}
+              {groundedDocs.length > 0
+                ? `${groundedDocs.length} Grounded Source${groundedDocs.length > 1 ? 's' : ''}`
+                : 'Direct Mode'}
             </span>
           </div>
 
-          {persistedDocs.length > 1 && (
-            <select
-              value={activeDocContext?.id || ''}
-              onChange={(e) => {
-                const target = persistedDocs.find((d) => d.id === e.target.value);
-                if (target) setActiveDocContext(target);
-              }}
-              style={{
-                fontSize: '0.75rem',
-                padding: '2px 8px',
-                borderRadius: 'var(--radius-xs)',
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--border-soft)',
-                color: 'var(--text-primary)',
-              }}
-            >
-              {persistedDocs.map((doc) => (
-                <option key={doc.id} value={doc.id}>
-                  {doc.filename}
-                </option>
-              ))}
-            </select>
-          )}
+          <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+            {groundedDocs.length > 0 ? (
+              <>
+                Grounding answers in {groundedDocs.length} document{groundedDocs.length > 1 ? 's' : ''}
+                {totalGroundedWords > 0 && (
+                  <span style={{ color: 'var(--text-muted)', marginLeft: 5 }}>
+                    ({totalGroundedWords.toLocaleString()} words analyzed)
+                  </span>
+                )}
+              </>
+            ) : (
+              <span style={{ color: 'var(--text-muted)' }}>
+                No documents uploaded. Responses draw from foundational intelligence.
+              </span>
+            )}
+          </span>
         </div>
-      )}
+
+        {groundedDocs.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {groundedDocs.slice(0, 3).map((d) => (
+              <span
+                key={d.id}
+                title={d.filename}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '3px 8px',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--bg-subtle)',
+                  border: '1px solid var(--border-soft)',
+                  fontSize: '0.74rem',
+                  maxWidth: 160,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                <FileText size={11} style={{ color: 'var(--accent-red)', flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.filename}</span>
+              </span>
+            ))}
+            {groundedDocs.length > 3 && (
+              <span
+                style={{
+                  fontSize: '0.74rem',
+                  color: 'var(--text-muted)',
+                  padding: '2px 6px',
+                }}
+              >
+                +{groundedDocs.length - 3} more
+              </span>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Message Thread */}
       <div
         ref={chatContainerRef}
+        onScroll={handleChatScroll}
         className="card chat-scroll-container"
         style={{
           flex: 1,
           overflowY: 'auto',
-          scrollBehavior: 'smooth',
           display: 'flex',
           flexDirection: 'column',
           gap: 16,

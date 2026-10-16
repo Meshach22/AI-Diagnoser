@@ -27,17 +27,26 @@ export default function AppHome() {
         <Header />
 
         <main className="content-viewport w-full max-w-full overflow-hidden">
-          {activeTab === 'chat' && (
-            <ChatWorkspace
-              initialPrompt={activeChatPrompt}
-            />
-          )}
+          <div
+            style={{
+              display: activeTab === 'chat' ? 'flex' : 'none',
+              flexDirection: 'column',
+              height: '100%',
+              minHeight: 0,
+            }}
+          >
+            <ChatWorkspace initialPrompt={activeChatPrompt} />
+          </div>
 
-          {activeTab === 'unified' && (
-            <DocWorkspace
-              initialFile={selectedFile}
-            />
-          )}
+          <div
+            style={{
+              display: activeTab === 'unified' ? 'block' : 'none',
+              height: '100%',
+              minHeight: 0,
+            }}
+          >
+            <DocWorkspace initialFile={selectedFile} />
+          </div>
         </main>
       </div>
     </div>

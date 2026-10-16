@@ -34,22 +34,45 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    try {
-      const memKey = user?.email ? `ai_diagnoser_memory_${user.email}` : 'ai_diagnoser_memory_guest';
-      const stored = localStorage.getItem(memKey);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed.uploadedDocs)) {
-          setHistoryDocs(parsed.uploadedDocs.slice(0, 8));
+
+    const loadHistory = () => {
+      try {
+        const memKey = user?.email ? `ai_diagnoser_memory_${user.email}` : 'ai_diagnoser_memory_guest';
+        const stored = localStorage.getItem(memKey);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed.uploadedDocs)) {
+            setHistoryDocs(parsed.uploadedDocs.slice(0, 8));
+          } else {
+            setHistoryDocs([]);
+          }
+          if (Array.isArray(parsed.messages)) {
+            const userQueries = parsed.messages.filter((m: any) => m.role === 'user').slice(-4).reverse();
+            setHistoryChats(userQueries);
+          }
+        } else {
+          setHistoryDocs([]);
         }
-        if (Array.isArray(parsed.messages)) {
-          const userQueries = parsed.messages.filter((m: any) => m.role === 'user').slice(-4).reverse();
-          setHistoryChats(userQueries);
-        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
-    }
+    };
+
+    loadHistory();
+
+    const handleSync = (e: any) => {
+      const payload = e.detail;
+      if (payload && Array.isArray(payload.uploadedDocs)) {
+        setHistoryDocs(payload.uploadedDocs.slice(0, 8));
+      }
+      if (payload && Array.isArray(payload.messages)) {
+        const userQueries = payload.messages.filter((m: any) => m.role === 'user').slice(-4).reverse();
+        setHistoryChats(userQueries);
+      }
+    };
+
+    window.addEventListener('ai_diagnoser_workspace_sync', handleSync);
+    window.addEventListener('storage', loadHistory);
 
     if (user?.email) {
       api.getDocuments().then((serverDocs) => {
@@ -68,6 +91,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
         }
       }).catch(() => {});
     }
+
+    return () => {
+      window.removeEventListener('ai_diagnoser_workspace_sync', handleSync);
+      window.removeEventListener('storage', loadHistory);
+    };
   }, [user, activeTab]);
 
   return (
