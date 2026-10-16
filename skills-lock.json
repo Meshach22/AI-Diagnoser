@@ -73,6 +73,12 @@
       "skillPath": "skills/friction/SKILL.md",
       "computedHash": "7c5335d3c3695764564e572c3c640c050b1efccc279d2ec1a2a4a529e84cce47"
     },
+    "frontend-design": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "skillPath": "skills/frontend-design/SKILL.md",
+      "computedHash": "106acf230014cbb43ca34e6410371321b56ca742f9ee0442e8ec05bf02eb0384"
+    },
     "frontpage": {
       "source": "udaysharmadev/Skills",
       "sourceType": "github",
